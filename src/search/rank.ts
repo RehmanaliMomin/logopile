@@ -44,6 +44,13 @@ export class Ranker {
 
     const target = parsed.targetName ? resolveCompany(companies, parsed.targetName) : null
 
+    // The query named a company we don't have. Ranking "everything vs nothing"
+    // just surfaces the biggest logos in the pile, which reads as a confident
+    // wrong answer — say we don't know it instead.
+    if (parsed.targetName && !target) {
+      return { hits: [], parsed, target: null, excludedForMissingData: 0, semanticUsed: false, layaUsed: false }
+    }
+
     // ---- hard filters ------------------------------------------------------
     let excludedForMissingData = 0
     const eligible: Company[] = []
@@ -148,14 +155,14 @@ export class Ranker {
     let top = hits.slice(0, MAX_HITS).filter((h) => h.score > 0.04)
 
     // ---- confidence --------------------------------------------------------
-    // Half relative (so the leader of a good result set reads high), half
-    // absolute (so a thin result set can't print 100% on a weak match).
+    // Weighted toward the absolute score, so a weak result set reads weak
+    // instead of normalising its best bad answer up to 100%.
     // Laya replaces this wholesale with a calibrated probability when it's up.
     const best = top[0]?.score ?? 1
     for (const h of top) {
       const rel = Math.pow(h.score / best, 1.15)
       const abs = Math.min(1, h.score / STRONG_SCORE)
-      h.confidence = Math.max(3, Math.min(99, Math.round(100 * (0.55 * rel + 0.45 * abs))))
+      h.confidence = Math.max(3, Math.min(99, Math.round(100 * (0.4 * rel + 0.6 * abs))))
     }
 
     let layaUsed = false

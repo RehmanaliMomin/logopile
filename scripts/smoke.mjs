@@ -34,6 +34,11 @@ const QUERIES = [
   'European data governance companies founded after 2010',
   'cybersecurity companies in Israel',
   'competitors of Pendo',
+  'nightfall direct competetors',
+  'who competes with CrowdStrike',
+  'show me Datadog alternatves',
+  'Snowflake rivals',
+  'competitors of Acme Nonexistent Corp',
 ]
 
 for (const q of QUERIES) {

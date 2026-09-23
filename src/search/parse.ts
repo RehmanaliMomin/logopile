@@ -69,13 +69,13 @@ export function parseQuery(raw: string): ParsedQuery {
   }
 
   // --- competitor / alternative intent (runs first; it owns the tail) -------
-  const compRe = /\b(?:competitors?|alternatives?|rivals?|similar companies)\s+(?:of|to|for)\s+([a-z0-9][a-z0-9 .&'-]*?)(?=\s+(?:with|that|which|in|having|over|under|above|below|valued|founded|raising|raised|by|and|,)\b|$)/
-  let m = s.match(compRe)
-  if (!m) m = s.match(/\b(?:companies\s+)?(?:similar|comparable)\s+to\s+([a-z0-9][a-z0-9 .&'-]*?)(?=\s+(?:with|that|which|in|having|over|under|above|below|valued|founded|and|,)\b|$)/)
-  if (!m) m = s.match(/\b([a-z0-9][a-z0-9 .&'-]*?)\s+(?:competitors|alternatives|rivals)\b/)
-  if (m) {
-    targetName = m[1].trim()
-    s = s.slice(0, m.index!) + ' ' + s.slice(m.index! + m[0].length)
+  // Token-based rather than one big regex: people write "nightfall direct
+  // competetors" as readily as "competitors of Nightfall", and they misspell
+  // the keyword constantly. Both have to work.
+  const comp = findCompetitorIntent(s)
+  if (comp) {
+    targetName = comp.target
+    s = s.slice(0, comp.start) + ' ' + s.slice(comp.end)
   }
 
   // --- numeric ranges -------------------------------------------------------
@@ -153,7 +153,7 @@ export function parseQuery(raw: string): ParsedQuery {
   }
 
   const semantic = s
-    .replace(/\b(?:companies|company|startups?|firms?|businesses|show me|find|list|the|that|which|with|and|are|is|of|in|a|an|any|all)\b/g, ' ')
+    .replace(/\b(?:companies|company|startups?|firms?|businesses|show|me|find|list|who|whom|what|whats|the|that|which|with|and|are|is|of|in|a|an|any|all)\b/g, ' ')
     .replace(/[^a-z0-9 .&+-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -168,6 +168,94 @@ export function parseQuery(raw: string): ParsedQuery {
     targetName,
     unicornOnly,
   }
+}
+
+
+/** Words that signal "find me things like this one". */
+const COMP_WORDS = [
+  'competitor', 'competitors', 'competition', 'competes', 'compete', 'competing',
+  'alternative', 'alternatives', 'rival', 'rivals',
+  'substitute', 'substitutes', 'peer', 'peers', 'comparable', 'comparables',
+]
+/** Adjectives people stack in front of the keyword: "nightfall DIRECT competitors". */
+const COMP_FILLER = new Set([
+  'direct', 'main', 'top', 'key', 'closest', 'biggest', 'primary', 'nearest',
+  'major', 'real', 'actual', 'best', 'other', 'close', 'nearby', 'true', 'core',
+])
+/** Words that start a new clause, so the company name has ended. */
+const CLAUSE_END = new Set([
+  'with', 'that', 'which', 'in', 'having', 'over', 'under', 'above', 'below',
+  'valued', 'founded', 'raising', 'raised', 'by', 'and', 'but', 'from', 'across', 'at',
+])
+/** Openers to strip off the front of "show me nightfall competitors". */
+const LEAD_NOISE = new Set([
+  'show', 'me', 'find', 'list', 'get', 'who', 'what', 'whats', 'are', 'is', 'the',
+  'give', 'us', 'name', 'all', 'some', 'a', 'an', 'top', 'please', 'companies', 'company',
+])
+
+/** Levenshtein, capped — we only care about "is this within 2 edits". */
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 99
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+/** "competetors" and "alternatves" have to land. Tolerance scales with length. */
+function isCompWord(token: string): boolean {
+  if (token.length < 5) return false
+  for (const w of COMP_WORDS) {
+    if (token === w) return true
+    const budget = w.length >= 9 ? 2 : 1
+    if (editDistance(token, w) <= budget) return true
+  }
+  return false
+}
+
+interface CompetitorIntent { target: string; start: number; end: number }
+
+/**
+ * Locate a competitor keyword, then decide which side of it the company name is on.
+ *
+ *   "competitors of X" / "alternatives to X" / "who competes with X"  → name follows
+ *   "X competitors" / "X direct competetors"                          → name precedes
+ *
+ * Returns the character span to cut out so the rest of the parser never sees it.
+ */
+function findCompetitorIntent(s: string): CompetitorIntent | null {
+  // Walk tokens while tracking where each one sits in the original string.
+  const tokens: Array<{ text: string; start: number; end: number }> = []
+  const re = /[^\s]+/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(s))) tokens.push({ text: m[0], start: m.index, end: m.index + m[0].length })
+
+  const k = tokens.findIndex((t) => isCompWord(t.text.replace(/[^a-z0-9]/g, '')))
+  if (k === -1) return null
+
+  // --- name after the keyword: "competitors of X", "similar to X" ----------
+  const next = tokens[k + 1]?.text
+  if (next === 'of' || next === 'to' || next === 'for' || next === 'with') {
+    let end = k + 2
+    while (end < tokens.length && !CLAUSE_END.has(tokens[end].text.replace(/[^a-z0-9]/g, ''))) end++
+    const name = tokens.slice(k + 2, end).map((t) => t.text).join(' ').replace(/[,.]+$/, '').trim()
+    if (name) return { target: name, start: tokens[k].start, end: tokens[end - 1].end }
+  }
+
+  // --- name before the keyword: "X competitors", "X direct competetors" ----
+  let first = 0
+  while (first < k && LEAD_NOISE.has(tokens[first].text.replace(/[^a-z0-9]/g, ''))) first++
+  let last = k
+  while (last > first && COMP_FILLER.has(tokens[last - 1].text.replace(/[^a-z0-9]/g, ''))) last--
+  const name = tokens.slice(first, last).map((t) => t.text).join(' ').replace(/[,.]+$/, '').trim()
+  if (name) return { target: name, start: tokens[first].start, end: tokens[k].end }
+
+  return null
 }
 
 export function describeFilters(q: ParsedQuery): string[] {
