@@ -1,0 +1,1 @@
+{"root":["./src/main.tsx","./src/types.ts","./src/data/load.ts","./src/physics/logos.ts","./src/physics/pile.ts","./src/search/bm25.ts","./src/search/embed.ts","./src/search/laya.ts","./src/search/parse.ts","./src/search/rank.ts","./src/search/smoke-entry.ts","./src/ui/app.tsx","./src/ui/detailcard.tsx","./src/ui/searchbar.tsx"],"version":"5.9.3"}
