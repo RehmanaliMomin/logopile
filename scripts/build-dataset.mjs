@@ -74,6 +74,7 @@ const companies = [...byId.values()]
     const { _source, ...rest } = c
     return {
       ...rest,
+      source: c.source ?? 'curated',
       ticker: c.ticker ?? null,
       employees: c.employees ?? null,
       founded: c.founded ?? null,
@@ -95,8 +96,8 @@ const companies = [...byId.values()]
         c.name,
         c.description,
         c.categories.join(', '),
-        `${c.hqCity}, ${c.hqCountry}, ${c.region}`,
-        c.stage,
+        [c.hqCity, c.hqCountry, c.region].filter((x) => x && x !== 'Unknown').join(', '),
+        c.stage === 'unknown' ? '' : c.stage,
         c.ticker ? `ticker ${c.ticker}` : '',
       ]
         .filter(Boolean)
@@ -108,9 +109,11 @@ const companies = [...byId.values()]
 mkdirSync(join(root, 'public'), { recursive: true })
 writeFileSync(join(root, 'public', 'companies.json'), JSON.stringify(companies))
 
+const curated = companies.filter((c) => c.source === 'curated').length
 const withRev = companies.filter((c) => c.revenueUsd != null).length
 const unicorns = companies.filter((c) => c.isUnicorn).length
 console.log(`✓ ${companies.length} companies from ${files.length} slices`)
+console.log(`  ${curated} curated · ${companies.length - curated} ingested`)
 console.log(`  ${withRev} with revenue · ${unicorns} unicorns · ${new Set(companies.flatMap((c) => c.categories)).size} categories`)
 if (warnings.length) {
   console.log(`\n${warnings.length} warning(s):`)

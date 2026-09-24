@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "embed": "node scripts/build-embeddings.mjs",
     "ingest:edgar": "node scripts/ingest-edgar.mjs",
-    "data": "node scripts/build-dataset.mjs && npm run embed"
+    "data": "node scripts/build-dataset.mjs && npm run embed",
+    "ingest:wikipedia": "node scripts/ingest-wikipedia.mjs --limit 12000"
   },
   "dependencies": {
     "matter-js": "^0.20.0",

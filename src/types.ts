@@ -1,4 +1,8 @@
-export type Region = 'North America' | 'Europe' | 'Asia' | 'Asia Pacific' | 'Middle East' | 'South America' | 'Africa'
+export type Region =
+  | 'North America' | 'Europe' | 'Asia' | 'Asia Pacific'
+  | 'Middle East' | 'South America' | 'Africa'
+  /** Bulk-ingested rows whose HQ country didn't map to a region. */
+  | 'Unknown'
 
 export interface Company {
   id: string
@@ -19,6 +23,8 @@ export interface Company {
   valuationEstimated: boolean
   fundingTotalUsd: number | null
   isUnicorn: boolean
+  /** 'curated' rows are hand-written and carry competitor edges + financials. */
+  source: 'curated' | 'wikipedia'
   competitors: string[]
   logo: string
   logoFallback: string

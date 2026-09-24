@@ -107,9 +107,9 @@ export class Ranker {
     let semAll: Float32Array | null = null
     if (queryText && this.ds.vectors) {
       const qvec = target && !parsed.semantic
-        ? rowOf(this.ds.vectors, companies.indexOf(target), this.ds.dim) // exact target vector beats re-embedding its text
+        ? rowOf(this.ds.vectors, companies.indexOf(target), this.ds.dim, this.ds.scale) // exact target vector beats re-embedding its text
         : await embedQuery(queryText)
-      if (qvec) semAll = cosineAgainstCorpus(qvec, this.ds.vectors, this.ds.dim, companies.length)
+      if (qvec) semAll = cosineAgainstCorpus(qvec, this.ds.vectors, this.ds.dim, companies.length, this.ds.scale)
     }
     const semanticUsed = semAll != null
 
@@ -226,8 +226,11 @@ export class Ranker {
   }
 }
 
-function rowOf(vectors: Float32Array, i: number, dim: number): Float32Array {
-  return vectors.subarray(i * dim, (i + 1) * dim)
+/** Dequantise one corpus row back to a float unit vector. */
+function rowOf(vectors: Int8Array, i: number, dim: number, scale: number): Float32Array {
+  const out = new Float32Array(dim)
+  for (let d = 0; d < dim; d++) out[d] = vectors[i * dim + d] / scale
+  return out
 }
 
 /** "whatfix" / "Whatfix" / "walkme.com" / "Palo Alto" → the company. */

@@ -6,12 +6,19 @@ execFileSync('npx', ['esbuild', 'src/search/smoke-entry.ts', '--bundle', '--form
 const { Ranker, setEmbedder } = await import(pathToFileURL('/tmp/lp-rank.mjs').href)
 const companies = JSON.parse(readFileSync('public/companies.json', 'utf8'))
 const meta = JSON.parse(readFileSync('public/embeddings.meta.json', 'utf8'))
-const vectors = new Float32Array(readFileSync('public/embeddings.bin').buffer.slice(0))
+const buf = readFileSync('public/embeddings.bin')
+const vectors = new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength)
 const { pipeline, env } = await import('@huggingface/transformers')
 env.cacheDir = 'scripts/.cache'
 const extract = await pipeline('feature-extraction', meta.model, { dtype: 'fp32' })
 setEmbedder(async (t) => new Float32Array((await extract(t, { pooling: 'mean', normalize: true })).data))
-const r = new Ranker({ companies, byId: new Map(companies.map((c) => [c.id, c])), vectors, dim: 384 })
+const r = new Ranker({
+  companies,
+  byId: new Map(companies.map((c) => [c.id, c])),
+  vectors,
+  dim: meta.dim,
+  scale: meta.scale ?? 127,
+})
 
 const Q = process.argv.slice(2).length ? process.argv.slice(2) : [
   // vague / conversational

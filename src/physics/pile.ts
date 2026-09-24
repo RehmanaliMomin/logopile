@@ -1,6 +1,6 @@
 import Matter from 'matter-js'
 import type { Company, Hit } from '../types'
-import { getLogo } from './logos'
+import { getLogo, getSprite, SPRITE_PAD } from './logos'
 
 /**
  * The pile.
@@ -33,14 +33,24 @@ interface Tile {
   rank: number
   /** 0 → in pile, 1 → fully flown. Drives label/badge fade. */
   lift: number
+  /** Spawned for a search rather than part of the resting heap; removed on release. */
+  transient?: boolean
 }
 
 export interface PileOptions {
   onSelect: (c: Company) => void
   onHover: (c: Company | null) => void
+  /**
+   * How many bodies live in the heap. The dataset can be far larger than this —
+   * Matter.js handles a few hundred colliding bodies comfortably and thousands
+   * not at all. The pile shows the most prominent slice; anything else is still
+   * fully searchable and gets spawned on demand when it matches.
+   */
+  maxBodies?: number
 }
 
 const WALL = 400
+const DEFAULT_MAX_BODIES = 500
 /** Width the results rail occupies on the right; the grid stays clear of it. */
 const RAIL_INSET = 278
 const RAIL_MIN_WIDTH = 900
@@ -61,6 +71,9 @@ export class Pile {
   private resultTop = 120
   private resultBottom = 0
   private destroyed = false
+
+  /** Everything searchable, including companies with no body in the heap. */
+  private catalogue = new Map<string, Company>()
 
   constructor(private canvas: HTMLCanvasElement, companies: Company[], private opts: PileOptions) {
     const ctx = canvas.getContext('2d', { alpha: true })
@@ -87,7 +100,18 @@ export class Pile {
 
   // ---------------------------------------------------------------- setup ---
 
+  /** Valuation, falling back to revenue — same ordering the ranker uses. */
+  private static weight(c: Company): number {
+    return c.valuationUsd ?? (c.revenueUsd != null ? c.revenueUsd * 4 : 0)
+  }
+
   private buildTiles(companies: Company[]) {
+    for (const c of companies) this.catalogue.set(c.id, c)
+    const max = this.opts.maxBodies ?? DEFAULT_MAX_BODIES
+    if (companies.length > max) {
+      companies = [...companies].sort((a, b) => Pile.weight(b) - Pile.weight(a)).slice(0, max)
+    }
+
     // Bigger companies get bigger tiles. Valuation is the most widely populated
     // "how much does this logo matter" signal we have.
     const sizeFor = (c: Company) => {
@@ -195,26 +219,51 @@ export class Pile {
     if (this.walls.length) this.buildWalls()
   }
 
+  /**
+   * Spawn a body for a company that matched but isn't in the heap. It enters
+   * from just below the floor so it reads as rising out of the pile.
+   */
+  private spawn(c: Company): Tile {
+    const size = Math.round(Math.max(30, Math.min(74, 26 + 7.5 * Math.log10(Math.max(1e7, Pile.weight(c)) / 1e7))))
+    const body = Bodies.rectangle(Common.random(size, this.w - size), this.h + size, size, size, {
+      chamfer: { radius: size * 0.26 },
+      restitution: 0.18,
+      friction: 0.42,
+      frictionAir: 0.012,
+      density: 0.0016,
+      label: c.id,
+    })
+    const tile: Tile = {
+      company: c, body, size, mode: 'pile', tx: 0, ty: 0, vx: 0, vy: 0,
+      targetSize: size, renderSize: size, confidence: 0, rank: 0, lift: 0,
+      transient: true,
+    }
+    this.tiles.push(tile)
+    this.byId.set(c.id, tile)
+    Composite.add(this.engine.world, body)
+    getLogo(c)
+    return tile
+  }
+
   /** Fly the matched logos up into a ranked grid; drop everything else back. */
   show(hits: Hit[]) {
-    const matched = new Set(hits.map((h) => h.company.id))
+    // Only fly what fits above the heap; the rail lists every match regardless.
+    const layout = hits.length ? this.layout(hits.length) : null
+    // Matching is not enough — a company that matched but sits past the grid
+    // capacity must also come down, or it keeps flying at the slot it was
+    // given by the *previous* query and overlaps whatever now owns that slot.
+    const flying = new Set(layout ? hits.slice(0, layout.capacity).map((h) => h.company.id) : [])
 
     for (const t of this.tiles) {
-      if (matched.has(t.company.id)) continue
-      if (t.mode === 'flying') this.release(t)
+      if (t.mode === 'flying' && !flying.has(t.company.id)) this.release(t)
     }
 
-    if (!hits.length) return
+    if (!layout) return
 
-    // Only fly what fits above the heap. On a short viewport the tail would
-    // otherwise land inside the pile and become unreadable; those hits stay in
-    // the rail, which lists every match regardless.
-    const layout = this.layout(hits.length)
     hits.slice(0, layout.capacity).forEach((hit, i) => {
-      const t = this.byId.get(hit.company.id)
-      if (!t) return
       const slot = layout.slots[i]
       if (!slot) return
+      const t = this.byId.get(hit.company.id) ?? this.spawn(hit.company)
       t.mode = 'flying'
       t.tx = slot.x
       t.ty = slot.y
@@ -265,6 +314,14 @@ export class Pile {
   // -------------------------------------------------------------- internals -
 
   private release(t: Tile) {
+    if (t.transient) {
+      // Never part of the heap — sink it back out of view instead of adding a
+      // body the pile was deliberately sized to exclude.
+      Composite.remove(this.engine.world, t.body)
+      this.tiles.splice(this.tiles.indexOf(t), 1)
+      this.byId.delete(t.company.id)
+      return
+    }
     t.mode = 'pile'
     t.targetSize = t.size
     t.confidence = 0
@@ -284,8 +341,12 @@ export class Pile {
     const rowH = cell * 0.96
     // Clear the search box, filter chips and the "ranking against X" note.
     const top = Math.max(196, this.h * 0.19)
-    // Leave the bottom third to the pile itself.
-    const maxRows = Math.max(1, Math.floor((this.h * 0.72 - top) / rowH))
+    // Measure where the heap actually reaches rather than assuming a fraction of
+    // the viewport — the pile got much taller when it grew to 500 bodies, and a
+    // fixed cutoff put the last rows of results inside it.
+    // At least two rows even when the heap is tall — flying tiles draw above the
+    // pile with a glow, so a little overlap reads fine and one lonely row does not.
+    const maxRows = Math.max(2, Math.floor((this.pileTop() - 24 - top) / rowH))
     const rows = Math.min(Math.ceil(n / cols), maxRows)
     const capacity = Math.min(n, rows * cols)
     const slots: Array<{ x: number; y: number }> = []
@@ -298,6 +359,17 @@ export class Pile {
       slots.push({ x: left + cell * c + cell / 2, y: top + rowH * r + rowH / 2 })
     }
     return { slots, size, capacity, top: top - 10, bottom: top + rowH * rows }
+  }
+
+  /** Y of the highest resting body, i.e. the top of the heap. */
+  private pileTop(): number {
+    let top = this.h
+    for (const t of this.tiles) {
+      if (t.mode === 'flying' || t.transient) continue
+      const y = t.body.position.y - t.size / 2
+      if (y < top) top = y
+    }
+    return top
   }
 
   private tick() {
@@ -351,46 +423,32 @@ export class Pile {
     const { x, y } = t.body.position
     if (y > this.h + 120 || y < -200) return
     const s = t.renderSize
-    const r = s * 0.26
     const isHover = this.hovered === t.company.id
 
     ctx.save()
     ctx.translate(x, y)
     ctx.rotate(t.body.angle)
 
-    // lift shadow + selection glow
+    // The lift glow is the one shadow we still pay for, and only the handful of
+    // flying tiles ever have it.
     if (t.lift > 0.02) {
       ctx.shadowColor = `rgba(99,102,241,${0.5 * t.lift})`
       ctx.shadowBlur = 26 * t.lift
-    } else {
-      ctx.shadowColor = 'rgba(0,0,0,0.45)'
-      ctx.shadowBlur = 8
-      ctx.shadowOffsetY = 3
     }
 
-    roundRect(ctx, -s / 2, -s / 2, s, s, r)
-    ctx.fillStyle = isHover ? '#ffffff' : '#f7f8fb'
-    ctx.fill()
+    const sprite = getSprite(t.company, this.dpr)
+    if (sprite) {
+      // The sprite includes its baked shadow in a padded margin, so it draws
+      // slightly larger than the plate itself.
+      const full = s / (1 - SPRITE_PAD * 2)
+      ctx.drawImage(sprite, -full / 2, -full / 2, full, full)
+    }
     ctx.shadowBlur = 0
-    ctx.shadowOffsetY = 0
 
-    const asset = getLogo(t.company)
-    const inner = s * 0.66
-    if (asset.state === 'ready' && asset.image) {
-      const img = asset.image
-      const scale = Math.min(inner / img.naturalWidth, inner / img.naturalHeight)
-      const w = img.naturalWidth * scale
-      const h = img.naturalHeight * scale
-      try { ctx.drawImage(img, -w / 2, -h / 2, w, h) } catch { /* tainted/decoding */ }
-    } else {
-      ctx.fillStyle = `hsl(${asset.monogram.hue} 68% 46%)`
-      roundRect(ctx, -inner / 2, -inner / 2, inner, inner, inner * 0.28)
+    if (isHover) {
+      roundRect(ctx, -s / 2, -s / 2, s, s, s * 0.26)
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'
       ctx.fill()
-      ctx.fillStyle = '#fff'
-      ctx.font = `700 ${Math.round(inner * 0.44)}px Inter, system-ui, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(asset.monogram.text, 0, 1)
     }
 
     // rank + confidence + name, faded in as the tile lifts
@@ -419,7 +477,6 @@ export class Pile {
       ctx.fillStyle = `rgba(196,201,255,${a})`
       ctx.fillText(conf, 0, cy + 1)
 
-      // rank pip
       ctx.beginPath()
       ctx.arc(-s / 2 + 2, -s / 2 + 2, 9, 0, Math.PI * 2)
       ctx.fillStyle = `rgba(17,18,28,${0.92 * a})`

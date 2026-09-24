@@ -58,14 +58,24 @@ export async function embedQuery(text: string): Promise<Float32Array | null> {
   return vec
 }
 
-/** Corpus rows and query are both L2-normalised, so dot product is cosine. */
-export function cosineAgainstCorpus(query: Float32Array, corpus: Float32Array, dim: number, n: number): Float32Array {
+/**
+ * Both sides are L2-normalised, so the dot product is the cosine. The corpus is
+ * stored int8, so each dot is divided by the quantisation scale once at the end
+ * rather than per component.
+ */
+export function cosineAgainstCorpus(
+  query: Float32Array,
+  corpus: Int8Array,
+  dim: number,
+  n: number,
+  scale = 127,
+): Float32Array {
   const out = new Float32Array(n)
   for (let i = 0; i < n; i++) {
     let dot = 0
     const off = i * dim
     for (let d = 0; d < dim; d++) dot += query[d] * corpus[off + d]
-    out[i] = (dot + 1) / 2 // -1..1 → 0..1
+    out[i] = (dot / scale + 1) / 2 // -1..1 → 0..1
   }
   return out
 }

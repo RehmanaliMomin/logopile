@@ -38,6 +38,10 @@ export function App() {
         pile = new Pile(canvasRef.current, dataset.companies, {
           onSelect: (c) => setSelected(c),
           onHover: (c) => setHovered(c),
+          // Matter.js is comfortable with a few hundred colliding bodies, not a
+          // few thousand. The heap shows the most prominent slice; everything
+          // else is still searchable and spawns in when it matches.
+          maxBodies: 500,
         })
         pileRef.current = pile
         // Handy for poking at the simulation from the console during dev.
@@ -132,7 +136,9 @@ export function App() {
         <div className="brand">
           <span className="brand-dot" />
           <span className="brand-name">Logo Pile</span>
-          <span className="brand-sub">{ds ? `${ds.companies.length} IT · SaaS companies` : 'loading…'}</span>
+          <span className="brand-sub">
+            {ds ? `${ds.companies.length.toLocaleString()} IT · SaaS companies` : 'loading…'}
+          </span>
         </div>
 
         <SearchBar

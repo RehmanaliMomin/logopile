@@ -66,11 +66,14 @@ export function DetailCard({
         <Metric label="Employees" value={fmtNum(company.employees)} />
         <Metric label="Founded" value={company.founded ? String(company.founded) : 'N/A'} />
         <Metric label="Funding" value={company.fundingTotalUsd ? fmtMoney(company.fundingTotalUsd) : 'N/A'} />
-        <Metric label="Stage" value={company.ticker ? `${company.stage} · ${company.ticker}` : company.stage} />
+        <Metric
+          label="Stage"
+          value={company.stage === 'unknown' ? 'N/A' : company.ticker ? `${company.stage} · ${company.ticker}` : company.stage}
+        />
       </div>
 
       <div className="detail-meta">
-        <span>📍 {company.hqCity}, {company.hqCountry}</span>
+        <span>📍 {[company.hqCity, company.hqCountry].filter((x) => x && x !== 'Unknown').join(', ') || 'HQ unknown'}</span>
         {company.isUnicorn && <span className="unicorn">🦄 unicorn</span>}
       </div>
 

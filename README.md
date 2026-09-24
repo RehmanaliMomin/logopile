@@ -2,7 +2,7 @@
 
 # 🧱 Logo Pile
 
-**A physics pile of 279 IT & SaaS logos. Ask in plain English, watch the answers fly out.**
+**A physics pile of 2,478 IT & SaaS logos. Ask in plain English, watch the answers fly out.**
 
 [![Live demo](https://img.shields.io/badge/▶_Live_demo-rehmanalimomin.github.io%2Flogopile-6366f1?style=for-the-badge)](https://rehmanalimomin.github.io/logopile/)
 
@@ -11,6 +11,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-6-646cff?logo=vite&logoColor=white)
 ![Matter.js](https://img.shields.io/badge/Matter.js-physics-4b5563)
+![Companies](https://img.shields.io/badge/companies-2%2C478-8b5cf6)
 ![No backend](https://img.shields.io/badge/backend-none-22c55e)
 ![License](https://img.shields.io/badge/license-MIT-black)
 
@@ -38,6 +39,9 @@ Paste any of these into the [live demo](https://rehmanalimomin.github.io/logopil
 | `observability unicorns with more than 1000 employees` | unicorn flag + headcount |
 | `European data governance companies founded after 2010` | region + year + semantic topic |
 | `who competes with CrowdStrike` | a third phrasing of the same intent |
+| `cybersecurity companies in Israel` | breadth — Pentera, Cato, XM Cyber, none of them hand-written |
+| `SaaS companies that are not American` | negation, which used to invert the filter |
+| `bootstrapped companies with more than 1000 employees` | a pure-filter query with no search terms at all |
 
 Everything runs in your browser. No key, no server, no signup.
 
@@ -155,7 +159,13 @@ The graph is symmetrised at build time: write `A → B` once and `B → A` appea
 
 <img src="docs/assets/pile.png" alt="279 company logos settled into a heap at the bottom of the screen" width="100%" />
 
-Matter.js runs the heap — 279 chamfered bodies, real collisions, draggable.
+Matter.js runs the heap — 500 chamfered bodies, real collisions, draggable.
+
+The dataset is five times that. Matter is comfortable with a few hundred
+colliding bodies and not with thousands, so **the pile is a viewport, not the
+whole corpus**: it holds the most prominent 500, and anything else that matches
+a query is spawned on demand from below the floor and removed again on release.
+Search always covers all 2,478.
 
 Matched tiles **do not stay in the simulation**. They get `collisionFilter.mask = 0` and
 are moved by a critically-damped spring integrated outside Matter. Physics for the pile,
@@ -163,7 +173,12 @@ deterministic easing for the answer; letting gravity and neighbours near the res
 turns it into a jostling mess.
 
 Tiles are sized by `log10(valuation)`, so the pile has visual hierarchy even at rest, and
-only as many results fly as fit above the heap — the rest stay listed in the rail.
+only as many results fly as fit above the measured top of the heap — the rest stay in the rail.
+
+Every tile is a **pre-baked sprite** (rounded plate + drop shadow + logo, drawn once to an
+offscreen canvas and blitted thereafter). Re-drawing 500 rounded rects with `shadowBlur`
+each frame cost 34 fps — and none of it showed up in a JS profiler, because the expense is
+rasterisation, not script. Frame budget is now ~6.5 ms of the 16.6 ms available.
 
 <details>
 <summary><b>Interaction reference</b></summary>
@@ -193,7 +208,9 @@ npm run dev          # → http://localhost:5188
 ```
 
 `companies.json` and `embeddings.bin` are committed, so this works immediately — no
-model download on the critical path.
+model download on the critical path. Total payload is about 1 MB: the corpus vectors are
+quantised to **int8** (`v × 127`, rounded), which costs ~0.4% cosine error and cuts the
+blob from 3.8 MB to 0.95 MB. Float32 does not compress; int8 does.
 
 <details>
 <summary><b>All commands</b></summary>
@@ -207,6 +224,8 @@ model download on the critical path.
 | `npm run data` | rebuild `companies.json` **and** `embeddings.bin` |
 | `npm run embed` | embeddings only (~25 MB model download on first run) |
 | `npm run ingest:edgar` | dry-run SEC revenue diff (`-- --write` to apply) |
+| `npm run ingest:wikipedia` | re-ingest the bulk tier from Wikipedia + Wikidata |
+| `node scripts/stress.mjs` | 28 deliberately awkward queries — typos, negation, pure filters |
 | `node scripts/smoke.mjs` | run the ranker over example queries in Node |
 | `node scripts/smoke.mjs --semantic` | same, with embeddings on |
 
@@ -220,6 +239,10 @@ filters and the top 8 hits for a dozen queries in about a second.
 ## Adding companies
 
 <img src="docs/assets/filters.png" alt="SaaS companies valued over $1B founded after 2015 — filter chips and match count above the results" width="100%" />
+
+The dataset is two tiers. `data/seed/0*.json` is **curated** — hand-written descriptions,
+category tags, financials and competitor edges. `data/seed/90-wikipedia.json` is
+**ingested** in bulk and always loses to a curated row on the same id or domain.
 
 1. Drop a new `data/seed/06-whatever.json` (a JSON array) or extend an existing slice.
 2. `npm run data`
@@ -271,6 +294,7 @@ status bar rather than silently dropped.
 
 | source | what you get | how |
 |---|---|---|
+| **Wikipedia + Wikidata** | ~2,200 companies with a real intro paragraph, HQ, founding year | `npm run ingest:wikipedia` (already run — this is the bulk tier) |
 | **SEC EDGAR** | real annual revenue for every US-listed company, no key | `npm run ingest:edgar -- --write` (matches on `ticker`) |
 | **SEC `company_tickers.json`** | the full list of US public companies + CIKs | seed `id`/`ticker`/`name`, then EDGAR for financials |
 | **Wikidata SPARQL** | founded year, HQ, employees, industry | public endpoint, no key |
@@ -353,9 +377,11 @@ this project's "runs entirely in a browser tab" constraint.
 data/seed/*.json                hand-curated slices — add files, merged in order
 scripts/
   build-dataset.mjs             merge, validate, symmetrise the graph, derive fields
-  build-embeddings.mjs          MiniLM → public/embeddings.bin (Float32, L2-normalised)
+  build-embeddings.mjs          MiniLM → public/embeddings.bin (int8, L2-normalised)
+  ingest-wikipedia.mjs          Wikipedia + Wikidata → the bulk tier (2,199 rows)
   ingest-edgar.mjs              SEC EDGAR → real revenue for tickered companies
   smoke.mjs                     Node harness: run the ranker over example queries
+  stress.mjs                    adversarial queries — typos, negation, pure filters
 src/
   search/parse.ts               NL → filters + target + leftover semantic text
   search/bm25.ts                tiny in-memory BM25
@@ -386,8 +412,12 @@ works, as long as `scripts/build-embeddings.mjs` uses the same model and dimensi
 
 ## Known limits
 
-- **279 companies.** The ranking is only as good as the graph and the descriptions behind
-  it. The pipeline is built to grow; the dataset is where the work is.
+- **Two tiers of data.** 279 curated rows carry competitor edges, revenue and valuation.
+  The 2,199 ingested rows carry a description, categories, HQ and founding year — but no
+  financials, so any revenue or valuation filter silently narrows to the curated tier (the
+  status bar reports how many rows were dropped for missing data).
+- **No competitor edges on ingested rows**, so `competitors of <ingested company>` leans
+  entirely on semantics and category overlap. It works; it is not as sharp as the curated set.
 - **Valuations are approximate market caps**, not live quotes.
 - **`requestAnimationFrame` pauses in background tabs**, so the pile freezes and resumes.
   That's correct browser behaviour, not a bug.
