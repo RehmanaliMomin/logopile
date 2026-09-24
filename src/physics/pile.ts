@@ -206,11 +206,15 @@ export class Pile {
 
     if (!hits.length) return
 
+    // Only fly what fits above the heap. On a short viewport the tail would
+    // otherwise land inside the pile and become unreadable; those hits stay in
+    // the rail, which lists every match regardless.
     const layout = this.layout(hits.length)
-    hits.forEach((hit, i) => {
+    hits.slice(0, layout.capacity).forEach((hit, i) => {
       const t = this.byId.get(hit.company.id)
       if (!t) return
       const slot = layout.slots[i]
+      if (!slot) return
       t.mode = 'flying'
       t.tx = slot.x
       t.ty = slot.y
@@ -275,14 +279,17 @@ export class Pile {
     const usableW = this.w - pad * 2 - inset
     const maxCols = Math.max(2, Math.min(8, Math.floor(usableW / 110)))
     const cols = Math.min(n, Math.max(2, Math.min(maxCols, Math.ceil(Math.sqrt(n * 1.9)))))
-    const rows = Math.ceil(n / cols)
     const cell = Math.min(128, usableW / cols)
     const size = Math.min(76, cell * 0.62)
     const rowH = cell * 0.96
     // Clear the search box, filter chips and the "ranking against X" note.
     const top = Math.max(196, this.h * 0.19)
+    // Leave the bottom third to the pile itself.
+    const maxRows = Math.max(1, Math.floor((this.h * 0.72 - top) / rowH))
+    const rows = Math.min(Math.ceil(n / cols), maxRows)
+    const capacity = Math.min(n, rows * cols)
     const slots: Array<{ x: number; y: number }> = []
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < capacity; i++) {
       const r = Math.floor(i / cols)
       const c = i % cols
       const inRow = Math.min(cols, n - r * cols)
@@ -290,7 +297,7 @@ export class Pile {
       const left = pad + (usableW - rowW) / 2
       slots.push({ x: left + cell * c + cell / 2, y: top + rowH * r + rowH / 2 })
     }
-    return { slots, size, top: top - 10, bottom: top + rowH * rows }
+    return { slots, size, capacity, top: top - 10, bottom: top + rowH * rows }
   }
 
   private tick() {
