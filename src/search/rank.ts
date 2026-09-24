@@ -3,7 +3,7 @@ import type { Dataset } from '../data/load'
 import { Bm25 } from './bm25'
 import { cosineAgainstCorpus, embedQuery, isReady } from './embed'
 import { layaEnabled, rerank } from './laya'
-import { parseQuery } from './parse'
+import { editDistance, parseQuery } from './parse'
 
 export interface SearchResult {
   hits: Hit[]
@@ -51,11 +51,21 @@ export class Ranker {
       return { hits: [], parsed, target: null, excludedForMissingData: 0, semanticUsed: false, layaUsed: false }
     }
 
+    // Companies the query explicitly asked to leave out.
+    const excluded = new Set<string>()
+    for (const name of parsed.excludeNames) {
+      const c = resolveCompany(companies, name)
+      if (c) excluded.add(c.id)
+    }
+
     // ---- hard filters ------------------------------------------------------
     let excludedForMissingData = 0
     const eligible: Company[] = []
     for (const c of companies) {
       if (target && c.id === target.id) continue
+      if (excluded.has(c.id)) continue
+      if (parsed.excludeRegions.includes(c.region)) continue
+      if (parsed.excludeCountries.includes(c.hqCountry)) continue
       let ok = true
       let missing = false
       for (const r of parsed.ranges) {
@@ -74,6 +84,14 @@ export class Ranker {
     if (!eligible.length) {
       return { hits: [], parsed, target, excludedForMissingData, semanticUsed: false, layaUsed: false }
     }
+
+    // A short query that resolves to a company is an identity lookup, not a
+    // search. "walkme" used to rank SAP first, because SAP's description
+    // mentions WalkMe and SAP is a far bigger logo.
+    const identity =
+      !target && parsed.semantic && parsed.semantic.split(/\s+/).length <= 3
+        ? resolveCompany(companies, parsed.semantic)
+        : null
 
     // ---- signals -----------------------------------------------------------
     // Query text for the semantic/lexical side. On a bare "competitors of X"
@@ -152,7 +170,15 @@ export class Ranker {
     })
 
     hits.sort((a, b) => b.score - a.score)
-    let top = hits.slice(0, MAX_HITS).filter((h) => h.score > 0.04)
+
+    // A pure-filter query ("bootstrapped companies with 1000+ employees") has no
+    // text to score against, so every hit lands near zero and the relevance
+    // floor would throw away a perfectly correct answer. The filter *is* the
+    // answer here; order by prominence and keep everything that passed.
+    const pureFilter = !queryText && !identity
+    let top = pureFilter
+      ? hits.slice(0, MAX_HITS)
+      : hits.slice(0, MAX_HITS).filter((h) => h.score > 0.04)
 
     // ---- confidence --------------------------------------------------------
     // Weighted toward the absolute score, so a weak result set reads weak
@@ -160,9 +186,28 @@ export class Ranker {
     // Laya replaces this wholesale with a calibrated probability when it's up.
     const best = top[0]?.score ?? 1
     for (const h of top) {
+      if (pureFilter) {
+        // Everything here satisfies the filter exactly; there is no "better".
+        h.confidence = 99
+        h.reasons.unshift('Matches every filter')
+        continue
+      }
       const rel = Math.pow(h.score / best, 1.15)
       const abs = Math.min(1, h.score / STRONG_SCORE)
       h.confidence = Math.max(3, Math.min(99, Math.round(100 * (0.4 * rel + 0.6 * abs))))
+    }
+
+    // Pin an identity lookup to the top; its neighbours follow underneath.
+    if (identity) {
+      const i = top.findIndex((h) => h.company.id === identity.id)
+      if (i > 0) {
+        const [hit] = top.splice(i, 1)
+        hit.confidence = 99
+        hit.reasons.unshift('Name match')
+        top.unshift(hit)
+      } else if (i === 0) {
+        top[0].confidence = 99
+      }
     }
 
     let layaUsed = false
@@ -190,11 +235,18 @@ export function resolveCompany(companies: Company[], name: string): Company | nu
   const q = name.trim().toLowerCase().replace(/[^a-z0-9. ]/g, '')
   if (!q) return null
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9. ]/g, '')
+  const squash = (x: string) => x.replace(/[ .]/g, '')
   return (
-    companies.find((c) => norm(c.name) === q || c.id === q.replace(/[ .]/g, '') || norm(c.domain) === q) ??
-    companies.find((c) => norm(c.domain).split('.')[0] === q.replace(/ /g, '')) ??
+    companies.find((c) => norm(c.name) === q || c.id === squash(q) || norm(c.domain) === q) ??
+    companies.find((c) => c.ticker != null && c.ticker.toLowerCase() === q) ??
+    companies.find((c) => norm(c.domain).split('.')[0] === squash(q)) ??
     companies.find((c) => norm(c.name).startsWith(q) && q.length >= 3) ??
     companies.find((c) => norm(c.name).includes(q) && q.length >= 4) ??
+    // Last resort: one or two typos in the company name itself ("whatfx").
+    (q.length >= 5
+      ? companies.find((c) => editDistance(squash(norm(c.name)), squash(q), 2) <= 2) ??
+        companies.find((c) => editDistance(norm(c.domain).split('.')[0], squash(q), 2) <= 2)
+      : undefined) ??
     null
   )
 }

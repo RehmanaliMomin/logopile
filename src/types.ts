@@ -46,6 +46,10 @@ export interface ParsedQuery {
   /** Set when the query is "competitors of X" / "alternatives to X". */
   targetName: string | null
   unicornOnly: boolean
+  /** Negated constraints: "SaaS companies that are not American". */
+  excludeRegions: string[]
+  excludeCountries: string[]
+  excludeNames: string[]
 }
 
 export interface Hit {

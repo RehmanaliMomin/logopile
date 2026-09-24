@@ -15,7 +15,8 @@ const MULT: Record<string, number> = {
   t: 1e12, trillion: 1e12,
 }
 
-const MONEY = String.raw`\$?\s*([\d,]+(?:\.\d+)?)\s*(k|m|mm|bn|b|t|thousand|million|billion|trillion)?`
+// Longest-first: "5 billion" must not match "b" and leave "illion" behind.
+const MONEY = String.raw`\$?\s*([\d,]+(?:\.\d+)?)\s*(trillion|thousand|billion|million|bn|mm|k|m|b|t)?\b`
 const GT = String.raw`(?:>|>=|over|above|more than|greater than|at least|north of)`
 const LT = String.raw`(?:<|<=|under|below|less than|fewer than|at most|up to)`
 
@@ -59,6 +60,9 @@ export function parseQuery(raw: string): ParsedQuery {
   const stages: string[] = []
   let targetName: string | null = null
   let unicornOnly = false
+  const excludeRegions: string[] = []
+  const excludeCountries: string[] = []
+  const excludeNames: string[] = []
 
   const eat = (re: RegExp, fn: (m: RegExpMatchArray) => void) => {
     let m: RegExpMatchArray | null
@@ -112,8 +116,12 @@ export function parseQuery(raw: string): ParsedQuery {
   eat(new RegExp(String.raw`\b${LT}\s*([\d,]+)\s*(?:k\b)?\s*(?:employees|people|headcount|staff)`), (mm) =>
     ranges.push({ field: 'employees', max: parseFloat(mm[1].replace(/,/g, '')) * (/k\b/.test(mm[0]) ? 1000 : 1), label: mm[0].trim() }),
   )
-  eat(/\b([\d,]+)\s*\+\s*(?:employees|people|headcount|staff)/, (mm) =>
-    ranges.push({ field: 'employees', min: parseFloat(mm[1].replace(/,/g, '')), label: mm[0].trim() }),
+  eat(/\b([\d,]+(?:\.\d+)?)\s*(k)?\s*\+\s*(?:employees|people|headcount|staff)/, (mm) =>
+    ranges.push({
+      field: 'employees',
+      min: parseFloat(mm[1].replace(/,/g, '')) * (mm[2] ? 1000 : 1),
+      label: mm[0].trim(),
+    }),
   )
 
   // founded year
@@ -129,6 +137,24 @@ export function parseQuery(raw: string): ParsedQuery {
   eat(/\b(?:founded|started|established|launched)\s+in\s+(\d{4})\b/, (mm) =>
     ranges.push({ field: 'founded', min: +mm[1], max: +mm[1], label: mm[0].trim() }),
   )
+
+  // --- exclusions (must run before the positive geography patterns) ---------
+  const NOT = String.raw`(?:not|non-?|except|excluding|other than|outside|besides|apart from|but not|minus)`
+  for (const [word, region] of Object.entries(REGION_ALIASES)) {
+    eat(new RegExp(String.raw`\b${NOT}\s+(?:in\s+|from\s+|based in\s+)?(?:the\s+)?${word}\b`), () => {
+      excludeRegions.push(region)
+    })
+  }
+  for (const [word, country] of Object.entries(COUNTRY_WORDS)) {
+    eat(new RegExp(String.raw`\b${NOT}\s+(?:in\s+|from\s+|based in\s+)?(?:the\s+)?${word}\b`), () => {
+      excludeCountries.push(country)
+    })
+  }
+  // "observability but not Datadog" — a named company to leave out.
+  eat(new RegExp(String.raw`\b${NOT}\s+([a-z0-9][a-z0-9.&'-]*(?:\s+[a-z0-9][a-z0-9.&'-]*)?)`), (mm) => {
+    const name = mm[1].trim()
+    if (name && !CLAUSE_END.has(name)) excludeNames.push(name)
+  })
 
   // --- geography ------------------------------------------------------------
   for (const [word, country] of Object.entries(COUNTRY_WORDS)) {
@@ -167,6 +193,9 @@ export function parseQuery(raw: string): ParsedQuery {
     stages: [...new Set(stages)],
     targetName,
     unicornOnly,
+    excludeRegions: [...new Set(excludeRegions)],
+    excludeCountries: [...new Set(excludeCountries)],
+    excludeNames: [...new Set(excludeNames)],
   }
 }
 
@@ -193,9 +222,9 @@ const LEAD_NOISE = new Set([
   'give', 'us', 'name', 'all', 'some', 'a', 'an', 'top', 'please', 'companies', 'company',
 ])
 
-/** Levenshtein, capped — we only care about "is this within 2 edits". */
-function editDistance(a: string, b: string): number {
-  if (Math.abs(a.length - b.length) > 2) return 99
+/** Levenshtein, capped — we only care about small edit distances. */
+export function editDistance(a: string, b: string, cap = 2): number {
+  if (Math.abs(a.length - b.length) > cap) return 99
   let prev = Array.from({ length: b.length + 1 }, (_, i) => i)
   for (let i = 1; i <= a.length; i++) {
     const cur = [i]
@@ -266,6 +295,9 @@ export function describeFilters(q: ParsedQuery): string[] {
   for (const r of q.regions) out.push(r)
   for (const c of q.countries) out.push(c)
   for (const s of q.stages) out.push(s)
+  for (const r of q.excludeRegions) out.push(`not ${r}`)
+  for (const c of q.excludeCountries) out.push(`not ${c}`)
+  for (const n of q.excludeNames) out.push(`not ${n}`)
   return out
 }
 
