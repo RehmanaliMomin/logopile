@@ -1,8 +1,8 @@
 {
   "model": "Xenova/all-MiniLM-L6-v2",
   "dim": 384,
-  "count": 2478,
+  "count": 2470,
   "dtype": "int8",
   "scale": 127,
-  "builtAt": "2026-09-24T21:21:56.139Z"
+  "builtAt": "2026-09-26T11:38:27.059Z"
 }

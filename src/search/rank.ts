@@ -33,9 +33,17 @@ function prominence(c: Company): number {
 
 export class Ranker {
   private bm25: Bm25
+  /** company id -> ids that list it as an inferred neighbour (the reverse edge). */
+  private inferredBack = new Map<string, Set<string>>()
 
   constructor(private ds: Dataset) {
     this.bm25 = new Bm25(ds.companies)
+    for (const c of ds.companies) {
+      for (const id of c.inferredCompetitors ?? []) {
+        if (!this.inferredBack.has(id)) this.inferredBack.set(id, new Set())
+        this.inferredBack.get(id)!.add(c.id)
+      }
+    }
   }
 
   async search(raw: string): Promise<SearchResult> {
@@ -115,6 +123,11 @@ export class Ranker {
 
     const targetCats = target ? new Set(target.categories) : null
     const targetEdges = target ? new Set(target.competitors) : null
+    // Inferred edges run both ways: neighbours the target claims, and companies
+    // that claim the target. A k-NN edge is not symmetric on its own.
+    const targetInferred = target
+      ? new Set([...(target.inferredCompetitors ?? []), ...(this.inferredBack.get(target.id) ?? [])])
+      : null
     // Shared-competitor overlap: two companies fought over by the same third
     // parties are competitors even when nobody listed them against each other.
     const targetSecondHop = new Set<string>()
@@ -156,6 +169,9 @@ export class Ranker {
       const reasons: string[] = []
       if (targetEdges?.has(c.id)) { competitor = 1; reasons.push(`Listed competitor of ${target!.name}`) }
       else if (targetSecondHop.has(c.id)) { competitor = 0.55; reasons.push(`Competes with ${target!.name}'s competitors`) }
+      // Scored below both, and labelled, because it is a guess from the
+      // embeddings rather than something anyone asserted.
+      else if (targetInferred?.has(c.id)) { competitor = 0.5; reasons.push('Similar product (inferred)') }
       if (sharedCats.length) reasons.push(`Shares ${sharedCats.slice(0, 3).join(', ')}`)
       if (semantic > 0.72) reasons.push('Close product-description match')
 

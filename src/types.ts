@@ -19,6 +19,8 @@ export interface Company {
   ticker: string | null
   revenueUsd: number | null
   revenueEstimated: boolean
+  /** Fiscal year the SEC figure came from, when it came from SEC. */
+  revenueFiscalYear: number | null
   valuationUsd: number | null
   valuationEstimated: boolean
   fundingTotalUsd: number | null
@@ -26,6 +28,8 @@ export interface Company {
   /** 'curated' rows are hand-written and carry competitor edges + financials. */
   source: 'curated' | 'wikipedia'
   competitors: string[]
+  /** k-NN neighbours, generated at build time for rows with no stated edges. */
+  inferredCompetitors: string[]
   logo: string
   logoFallback: string
   searchText: string

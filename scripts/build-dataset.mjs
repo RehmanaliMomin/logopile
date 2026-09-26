@@ -52,6 +52,40 @@ for (const f of files) {
   }
 }
 
+// --- drop cross-tier duplicates ---------------------------------------------
+// The ingest skips anything already claimed by id or domain, but the same
+// company can arrive under a different domain (dell.com vs delltechnologies.com)
+// or a renamed entity (Ceridian vs Dayforce). A shared ticker is proof they are
+// the same registrant; a matching normalised name is strong enough too.
+// Curated always wins — it is the tier with competitor edges and financials.
+const nameKey = (n) =>
+  n.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(inc|corp|corporation|ltd|limited|plc|llc|group|holdings)$/, '')
+
+for (const key of ['ticker', 'name']) {
+  const seen = new Map()
+  for (const c of [...byId.values()]) {
+    const k = key === 'ticker' ? c.ticker : nameKey(c.name)
+    if (!k) continue
+    const prior = seen.get(k)
+    if (!prior) { seen.set(k, c); continue }
+    // `source` is only defaulted in the derive step below, so read it defensively
+    // here — a curated row has no explicit source and must not read as ingested.
+    const isCurated = (x) => (x.source ?? 'curated') === 'curated'
+    const loser = isCurated(prior) ? c : prior
+    const winner = loser === c ? prior : c
+    // Salvage anything the curated row lacks before discarding the duplicate.
+    for (const field of ['revenueUsd', 'revenueFiscalYear', 'employees', 'founded', 'fundingTotalUsd', 'ticker']) {
+      if (winner[field] == null && loser[field] != null) winner[field] = loser[field]
+    }
+    if (loser.revenueUsd != null && !loser.revenueEstimated && winner.revenueUsd === loser.revenueUsd) {
+      winner.revenueEstimated = false
+    }
+    warnings.push(`duplicate ${key} "${k}": kept ${winner.id} (${winner.source ?? 'curated'}), dropped ${loser.id} (${loser.source ?? 'curated'})`)
+    byId.delete(loser.id)
+    seen.set(k, winner)
+  }
+}
+
 // --- symmetrise the competitor graph, drop dangling edges -------------------
 for (const c of byId.values()) {
   c.competitors = [...new Set((c.competitors ?? []).map((id) => ALIAS[id] ?? id))].filter((id) => id !== c.id)
@@ -79,6 +113,7 @@ const companies = [...byId.values()]
       employees: c.employees ?? null,
       founded: c.founded ?? null,
       revenueUsd: c.revenueUsd ?? null,
+      revenueFiscalYear: c.revenueFiscalYear ?? null,
       valuationUsd: c.valuationUsd ?? null,
       fundingTotalUsd: c.fundingTotalUsd ?? null,
       isUnicorn: (c.valuationUsd ?? 0) >= 1_000_000_000,

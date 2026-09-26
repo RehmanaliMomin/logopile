@@ -61,7 +61,11 @@ export function DetailCard({
       )}
 
       <div className="metrics">
-        <Metric label="Revenue" value={company.revenueUsd ? fmtMoney(company.revenueUsd) : 'N/A'} estimated={company.revenueEstimated} />
+        <Metric
+          label={company.revenueFiscalYear ? `Revenue FY${String(company.revenueFiscalYear).slice(2)}` : 'Revenue'}
+          value={company.revenueUsd ? fmtMoney(company.revenueUsd) : 'N/A'}
+          estimated={company.revenueEstimated}
+        />
         <Metric label="Valuation" value={company.valuationUsd ? fmtMoney(company.valuationUsd) : 'N/A'} estimated={company.valuationEstimated} />
         <Metric label="Employees" value={fmtNum(company.employees)} />
         <Metric label="Founded" value={company.founded ? String(company.founded) : 'N/A'} />
