@@ -2,3 +2,6 @@ node_modules
 dist
 .DS_Store
 scripts/.cache
+.laya-venv/
+.env.local
+.env

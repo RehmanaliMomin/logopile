@@ -40,10 +40,13 @@ Paste any of these into the [live demo](https://rehmanalimomin.github.io/logopil
 | `European data governance companies founded after 2010` | region + year + semantic topic |
 | `who competes with CrowdStrike` | a third phrasing of the same intent |
 | `cybersecurity companies in Israel` | breadth — Pentera, Cato, XM Cyber, none of them hand-written |
+| `competitors of ACI Worldwide` | an *inferred* edge — nobody wrote this graph by hand |
 | `SaaS companies that are not American` | negation, which used to invert the filter |
 | `bootstrapped companies with more than 1000 employees` | a pure-filter query with no search terms at all |
 
 Or press **More ↻** under the search box to page through the rest — there are over 600.
+**Filters** turns the same constraints into controls, and every search is a shareable link (`?q=…`).
+**Sort** splits the heap into zones by what each company does.
 
 Everything runs in your browser. No key, no server, no signup.
 
@@ -383,24 +386,66 @@ embedding tuning. In order of payoff:
 
 ## Optional: calibrated confidence with Laya
 
-[Laya](https://github.com/NandhaKishorM/laya) (Apache-2.0) is a non-autoregressive decision
-engine and an open alternative to TypeSafe's Jev. Its `noul` head returns a **calibrated**
-yes/no probability in ~33 ms — which is exactly what this UI's badge claims to be showing.
+[Laya](https://github.com/NandhaKishorM/laya) (Apache-2.0) is a non-autoregressive
+decision engine and an open alternative to TypeSafe's Jev. Its `noul` head returns a
+calibrated yes/no probability in ~33 ms on GPU, which is exactly what this UI's badge
+claims to be showing. The integration is wired, working, and **off by default** — because
+I ran it, and on this task it makes the ordering worse.
+
+<details open>
+<summary><b>What it actually scored</b></summary>
+
+<br />
+
+laya 0.3.4, `convaiinnovations/laya`, asking *"Is this company a direct competitor of
+Whatfix, a digital adoption platform?"*:
+
+| company | `noul` | should be |
+|---|--:|---|
+| Userlane | 0.830 | ✅ high — direct DAP rival |
+| WalkMe | 0.814 | ✅ high — the category's pioneer |
+| **Stripe** | **0.770** | ❌ a payments company, should be near zero |
+| Toast | 0.586 | ❌ restaurant POS |
+| **Pendo** | **0.506** | ❌ an actual rival, scored at chance |
+| NVIDIA | 0.258 | ✅ low |
+
+It separates the obvious extremes but ranks Stripe above Pendo. End-to-end through the
+app, reranking demotes WalkMe from #1 to #4 and Pendo from #8 to #7 while promoting
+Spekit to the top. The `typed-decisions` checkpoint was flatter still — every company
+between 0.35 and 0.50, with Stripe (0.464) edging out WalkMe (0.459).
+
+This is a zero-shot open-domain judgement about company competition, which is not what
+the model is trained for; its own examples are ticket triage, moderation and guardrails.
+A fine-tune on competitor pairs would be the fair test and I have not run one.
+
+</details>
+
+<details>
+<summary><b>Running it anyway</b></summary>
+
+<br />
+
+`pip install "laya[serve]"` advertises FastAPI + uvicorn but installs neither at 0.3.4,
+and there is no `laya-serve` entry point, so `tools/laya_server.py` is a standard-library
+server speaking the documented `/v1/systemone` API.
 
 ```bash
-# run Laya per its README, then:
+python3 -m venv .venv && .venv/bin/pip install laya
+HF_TOKEN=<your token> .venv/bin/python tools/laya_server.py
 echo 'VITE_LAYA_URL=http://localhost:8000' >> .env.local
 ```
 
-The top 30 hits get reranked by `P(this company is a direct competitor of X)`. Off by
-default, and every failure mode — unset, down, slow, malformed — falls back to the local
-score with nothing surfaced to the user. The status bar reads `Laya calibrated` only when
-a rerank actually landed.
+The top 12 hits get rescored by `P(direct competitor of X)`, four requests in flight at a
+time, since the API scores one company per call. Every failure mode — unset, down, slow,
+malformed, all-null — falls back to the local score with nothing surfaced to the user. The
+status bar reads `Laya calibrated` only when a rerank actually landed.
 
-It's kept optional deliberately: Laya is Python + PyTorch, and requiring it would break
-this project's "runs entirely in a browser tab" constraint.
+**A note on the first version of this adapter:** it posted to `/v1/decide` with a batched
+`inputs` array and read `results[].probability`. None of that exists — I wrote it from an
+assumed API shape and never ran a server against it. It would have failed every call and
+fallen back silently, forever, looking like it worked.
 
----
+</details>
 
 ## Project structure
 
@@ -413,13 +458,18 @@ scripts/
   ingest-edgar.mjs              SEC EDGAR → real revenue for tickered companies
   smoke.mjs                     Node harness: run the ranker over example queries
   stress.mjs                    adversarial queries — typos, negation, pure filters
-  validate-suggestions.mjs      assert all 617 suggestions return results
+  validate-suggestions.mjs      assert every suggestion returns results
+  resolve-tickers.mjs           match company names against SEC registrants
+  infer-competitors.mjs         k-NN competitor edges for rows with none
+  build-clusters.mjs            assign each company a visual zone
+tools/laya_server.py            stdlib /v1/systemone server for the optional reranker
 src/
   search/parse.ts               NL → filters + target + leftover semantic text
   search/bm25.ts                tiny in-memory BM25
   search/embed.ts               query-side embedding, lazy from CDN, swappable
   search/rank.ts                the blend
   search/suggestions.ts         query suggestions generated from corpus counts
+  ui/FilterPanel.tsx            structured filters that compose into the query text
   search/laya.ts                optional calibrated reranker
   physics/pile.ts               Matter world, spring layout, canvas rendering
   physics/logos.ts              logo fallback chain
@@ -449,11 +499,15 @@ works, as long as `scripts/build-embeddings.mjs` uses the same model and dimensi
   The 2,199 ingested rows carry a description, categories, HQ and founding year — but no
   financials, so any revenue or valuation filter silently narrows to the curated tier (the
   status bar reports how many rows were dropped for missing data).
-- **No competitor edges on ingested rows**, so `competitors of <ingested company>` leans
-  entirely on semantics and category overlap. It works; it is not as sharp as the curated set.
+- **455 of the ingested rows have inferred edges**, generated by k-NN rather than asserted
+  by anyone, and scored below a stated edge. The remaining 1,719 fall back to semantics and
+  category overlap alone.
 - **Valuations are approximate market caps**, not live quotes.
 - **`requestAnimationFrame` pauses in background tabs**, so the pile freezes and resumes.
   That's correct browser behaviour, not a bug.
+- **Mobile works but is cramped.** Verified at 390×844 and 768×1024: 60 fps, no horizontal
+  scroll, body count scaled to viewport, and the results rail becomes a bottom sheet so all
+  matches stay reachable when only three fit in the grid.
 - **No image-based (logo similarity) search.** The hook exists — `setEmbedder` plus a CLIP
   image tower — and the corpus blob format already supports it.
 
