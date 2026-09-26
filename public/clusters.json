@@ -1,0 +1,123 @@
+[
+  {
+    "id": "security",
+    "label": "Security",
+    "size": 287,
+    "examples": [
+      "Palo Alto Networks",
+      "CrowdStrike",
+      "Fortinet",
+      "Cloudflare"
+    ]
+  },
+  {
+    "id": "data",
+    "label": "Data & Analytics",
+    "size": 392,
+    "examples": [
+      "Oracle",
+      "Palantir",
+      "Databricks",
+      "Snowflake"
+    ]
+  },
+  {
+    "id": "ai",
+    "label": "AI & ML",
+    "size": 154,
+    "examples": [
+      "NVIDIA",
+      "Meta",
+      "OpenAI",
+      "Anthropic"
+    ]
+  },
+  {
+    "id": "devtools",
+    "label": "Developer Tools",
+    "size": 471,
+    "examples": [
+      "ServiceNow",
+      "Twilio",
+      "Pega",
+      "Airtable"
+    ]
+  },
+  {
+    "id": "cloud",
+    "label": "Cloud & Infra",
+    "size": 356,
+    "examples": [
+      "Microsoft",
+      "Amazon Web Services",
+      "Google Cloud",
+      "Cisco"
+    ]
+  },
+  {
+    "id": "fintech",
+    "label": "Fintech",
+    "size": 185,
+    "examples": [
+      "Stripe",
+      "PayPal",
+      "Workday",
+      "Adyen"
+    ]
+  },
+  {
+    "id": "gtm",
+    "label": "Sales & Marketing",
+    "size": 146,
+    "examples": [
+      "Salesforce",
+      "Shopify",
+      "HubSpot",
+      "Zendesk"
+    ]
+  },
+  {
+    "id": "people",
+    "label": "HR & People",
+    "size": 67,
+    "examples": [
+      "SAP",
+      "ADP",
+      "Paychex",
+      "Deel"
+    ]
+  },
+  {
+    "id": "work",
+    "label": "Work & Collaboration",
+    "size": 183,
+    "examples": [
+      "Adobe",
+      "Atlassian",
+      "Canva",
+      "Figma"
+    ]
+  },
+  {
+    "id": "services",
+    "label": "IT Services",
+    "size": 69,
+    "examples": [
+      "IBM",
+      "Accenture",
+      "Tata Consultancy Services",
+      "Infosys"
+    ]
+  },
+  {
+    "id": "vertical",
+    "label": "Vertical Software",
+    "size": 160,
+    "examples": [
+      "Adidas Runtastic",
+      "Allegro Development Corporation",
+      "American Book Company",
+      "Ammyy"
+    ]
+  }
+]

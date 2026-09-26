@@ -1,5 +1,5 @@
 import Matter from 'matter-js'
-import type { Company, Hit } from '../types'
+import type { Company, Hit, Zone } from '../types'
 import { getLogo, getSprite, SPRITE_PAD } from './logos'
 
 /**
@@ -78,6 +78,11 @@ export class Pile {
    */
   private pileOffset = 0
   private pileOffsetTarget = 0
+  /** Sort mode: pull the heap sideways into one vertical band per zone. */
+  private sorting = false
+  private zones: Zone[] = []
+  /** zone id -> { x centre, half-width } in canvas pixels, recomputed on resize. */
+  private bands = new Map<string, { x: number; w: number; label: string }>()
   private destroyed = false
 
   /** Everything searchable, including companies with no body in the heap. */
@@ -232,6 +237,7 @@ export class Pile {
     this.canvas.height = Math.round(this.h * this.dpr)
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
     if (this.walls.length) this.buildWalls()
+    this.layoutBands()
   }
 
   /**
@@ -300,6 +306,54 @@ export class Pile {
   clear() {
     for (const t of this.tiles) if (t.mode === 'flying') this.release(t)
     this.pileOffsetTarget = 0
+  }
+
+  setZones(zones: Zone[]) {
+    this.zones = zones
+    this.layoutBands()
+  }
+
+  /**
+   * Toggle the sort. Bodies get pulled toward their zone's band by a horizontal
+   * spring while gravity keeps doing the stacking, so the heap reorganises
+   * itself rather than being teleported into place.
+   */
+  setSorting(on: boolean) {
+    this.sorting = on
+    this.layoutBands()
+    for (const t of this.tiles) {
+      // Extra drag while sorting, or the bands oscillate instead of settling.
+      t.body.frictionAir = on ? 0.05 : 0.012
+      if (on) Body.applyForce(t.body, t.body.position, { x: 0, y: -0.02 * t.body.mass })
+    }
+  }
+
+  get isSorting(): boolean {
+    return this.sorting
+  }
+
+  /**
+   * Band widths follow each zone's total tile AREA, not its head count. Tiles are
+   * sized by valuation, so a zone of twenty giants covers far more ground than
+   * twenty startups — splitting by count alone left the big-logo bands heaped
+   * into a hump that reached the search box.
+   */
+  private layoutBands() {
+    this.bands.clear()
+    if (!this.zones.length) return
+    const area = new Map<string, number>()
+    for (const t of this.tiles) {
+      if (t.transient) continue
+      area.set(t.company.cluster, (area.get(t.company.cluster) ?? 0) + t.size * t.size)
+    }
+    const present = this.zones.filter((z) => (area.get(z.id) ?? 0) > 0)
+    const total = present.reduce((a, z) => a + (area.get(z.id) ?? 0), 0) || 1
+    let x = 0
+    for (const z of present) {
+      const w = (this.w * (area.get(z.id) ?? 0)) / total
+      this.bands.set(z.id, { x: x + w / 2, w, label: z.label })
+      x += w
+    }
   }
 
   /** Shove the pile — used by the shake button and device tilt. */
@@ -397,6 +451,25 @@ export class Pile {
 
   private tick() {
     const dt = 1000 / 60
+
+    if (this.sorting) {
+      for (const t of this.tiles) {
+        if (t.mode === 'flying') continue
+        const band = this.bands.get(t.company.cluster)
+        if (!band) continue
+        // Containment, not centring. Pulling every body toward the middle of its
+        // band stacks them into a skyscraper that runs off the top of the screen;
+        // only nudging the ones that have strayed outside lets each zone spread
+        // across its full width and stay about as tall as the others.
+        const half = Math.max(24, band.w / 2 - t.size * 0.55)
+        const dx = t.body.position.x - band.x
+        if (Math.abs(dx) <= half) continue
+        const overshoot = Math.abs(dx) - half
+        const force = Math.sign(dx) * -Math.min(0.012, overshoot * 0.0006) * t.body.mass
+        Body.applyForce(t.body, t.body.position, { x: force, y: 0 })
+      }
+    }
+
     Engine.update(this.engine, dt)
 
     // Critically-damped spring for flying tiles, integrated outside Matter so
@@ -433,6 +506,7 @@ export class Pile {
     // The heap, pushed down out of the results' way.
     ctx.save()
     ctx.translate(0, this.pileOffset)
+    if (this.sorting) this.drawBands(ctx)
     for (const t of this.tiles) if (t.lift <= 0.01) this.drawTile(ctx, t)
     ctx.restore()
 
@@ -450,6 +524,45 @@ export class Pile {
     }
 
     for (const t of flying) this.drawTile(ctx, t)
+
+    // Screen space, so a full band can't push its label out of view.
+    if (this.sorting) this.drawBandLabels(ctx)
+  }
+
+  /** Band tints, drawn under the heap. */
+  private drawBands(ctx: CanvasRenderingContext2D) {
+    let i = 0
+    for (const [, band] of this.bands) {
+      ctx.fillStyle = i % 2 ? 'rgba(129,140,248,0.055)' : 'rgba(129,140,248,0.015)'
+      ctx.fillRect(band.x - band.w / 2, 0, band.w, this.h)
+      i++
+    }
+  }
+
+  /**
+   * Zone labels along the bottom edge, in screen space. They used to sit above
+   * the tallest body in each band, which put them behind the search box on a
+   * full band and off-screen entirely on a very full one.
+   */
+  private drawBandLabels(ctx: CanvasRenderingContext2D) {
+    const y = this.h - 34
+    ctx.save()
+    ctx.font = '600 10px Inter, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (const [, band] of this.bands) {
+      const tw = ctx.measureText(band.label).width
+      if (tw + 16 > band.w) continue
+      roundRect(ctx, band.x - tw / 2 - 8, y - 9, tw + 16, 18, 9)
+      ctx.fillStyle = 'rgba(13,15,23,0.94)'
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(129,140,248,0.38)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.fillStyle = 'rgba(205,209,255,0.96)'
+      ctx.fillText(band.label, band.x, y + 0.5)
+    }
+    ctx.restore()
   }
 
   private drawResultBackdrop(ctx: CanvasRenderingContext2D) {

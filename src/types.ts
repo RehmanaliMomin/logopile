@@ -30,6 +30,8 @@ export interface Company {
   competitors: string[]
   /** k-NN neighbours, generated at build time for rows with no stated edges. */
   inferredCompetitors: string[]
+  /** Visual zone id from build-clusters (security, data, ai, …). */
+  cluster: string
   logo: string
   logoFallback: string
   searchText: string
@@ -60,6 +62,13 @@ export interface ParsedQuery {
   excludeRegions: string[]
   excludeCountries: string[]
   excludeNames: string[]
+}
+
+export interface Zone {
+  id: string
+  label: string
+  size: number
+  examples: string[]
 }
 
 export interface Hit {

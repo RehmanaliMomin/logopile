@@ -8,6 +8,7 @@ import { buildSuggestions, PINNED_SUGGESTIONS, shuffleTail } from '../search/sug
 import { layaEnabled } from '../search/laya'
 import { Pile } from '../physics/pile'
 import { SearchBar } from './SearchBar'
+import { FilterPanel } from './FilterPanel'
 import { DetailCard } from './DetailCard'
 
 export function App() {
@@ -17,13 +18,15 @@ export function App() {
   const seqRef = useRef(0)
 
   const [ds, setDs] = useState<Dataset | null>(null)
-  const [query, setQuery] = useState('')
+  // The query lives in the URL so a search can be linked to and survives reload.
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [result, setResult] = useState<SearchResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<Company | null>(null)
   const [hovered, setHovered] = useState<Company | null>(null)
   const [semanticReady, setSemanticReady] = useState(false)
   const [tilt, setTilt] = useState(false)
+  const [sorting, setSorting] = useState(false)
 
   // ---- boot ---------------------------------------------------------------
   useEffect(() => {
@@ -42,8 +45,13 @@ export function App() {
           // Matter.js is comfortable with a few hundred colliding bodies, not a
           // few thousand. The heap shows the most prominent slice; everything
           // else is still searchable and spawns in when it matches.
-          maxBodies: 500,
+          //
+          // Scaled to the viewport: 500 bodies is right on a laptop and buries a
+          // phone, where the same heap filled the screen and left room for three
+          // results out of twenty-four.
+          maxBodies: bodyBudget(),
         })
+        pile.setZones(dataset.zones)
         pileRef.current = pile
         // Handy for poking at the simulation from the console during dev.
         if (import.meta.env.DEV) (window as unknown as { pile: Pile }).pile = pile
@@ -89,6 +97,22 @@ export function App() {
     const t = setTimeout(() => run(query), 260)
     return () => clearTimeout(t)
   }, [query, run])
+
+  // Mirror the query into the address bar, replacing rather than pushing so the
+  // back button still leaves the page instead of walking every keystroke.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (query.trim()) url.searchParams.set('q', query.trim())
+    else url.searchParams.delete('q')
+    if (url.toString() !== window.location.href) window.history.replaceState(null, '', url)
+  }, [query])
+
+  // Back/forward and pasted links.
+  useEffect(() => {
+    const onPop = () => setQuery(new URLSearchParams(window.location.search).get('q') ?? '')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   // Re-run once embeddings land so the first query upgrades itself.
   useEffect(() => {
@@ -160,6 +184,14 @@ export function App() {
         />
 
         <div className="tools">
+          {ds && <FilterPanel companies={ds.companies} query={query} onChange={setQuery} />}
+          <button
+            className={'tool' + (sorting ? ' is-on' : '')}
+            onClick={() => { const next = !sorting; setSorting(next); pileRef.current?.setSorting(next) }}
+            title="Separate the pile into zones by what each company does"
+          >
+            Sort
+          </button>
           <button className="tool" onClick={() => pileRef.current?.kick(1)} title="Shake the pile">Shake</button>
           <button className={'tool' + (tilt ? ' is-on' : '')} onClick={toggleTilt} title="Tilt your device to shake">Tilt</button>
         </div>
@@ -230,4 +262,14 @@ export function App() {
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v))
+}
+
+/**
+ * Roughly one body per 2,800 px² of viewport — the density that looks like a
+ * heap without becoming the whole page. Fixed at load; a resize re-lays the
+ * walls but does not add or remove bodies.
+ */
+function bodyBudget(): number {
+  const area = window.innerWidth * window.innerHeight
+  return Math.round(clamp(area / 2800, 90, 500))
 }

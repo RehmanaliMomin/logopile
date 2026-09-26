@@ -9,10 +9,11 @@
     "preview": "vite preview",
     "embed": "node scripts/build-embeddings.mjs",
     "ingest:edgar": "node scripts/ingest-edgar.mjs",
-    "data": "node scripts/build-dataset.mjs && npm run embed && npm run infer",
+    "data": "node scripts/build-dataset.mjs && npm run embed && npm run infer && npm run clusters",
     "ingest:wikipedia": "node scripts/ingest-wikipedia.mjs --limit 12000",
     "infer": "node scripts/infer-competitors.mjs",
-    "tickers": "node scripts/resolve-tickers.mjs"
+    "tickers": "node scripts/resolve-tickers.mjs",
+    "clusters": "node scripts/build-clusters.mjs"
   },
   "dependencies": {
     "matter-js": "^0.20.0",
