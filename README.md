@@ -224,8 +224,21 @@ rasterisation, not script. Frame budget is now ~6.5 ms of the 16.6 ms available.
 | `Esc` | blur search |
 | drag | throw a logo around |
 | click | open its detail card |
+| two-finger swipe | tip the world; it rights itself |
 | **Shake** | kick the pile |
-| **Tilt** | DeviceOrientation — tilt your laptop or phone to shake the heap (iOS asks permission) |
+| **Lean** | gravity follows your cursor — the pile slides toward it |
+| **Tilt** | real device orientation, on hardware that has a sensor |
+
+**Tilting a Mac does nothing, and that is the hardware's fault, not a bug.** The Sudden
+Motion Sensor existed to park spinning hard drives and left when Macs went all-SSD; an
+M-series MacBook reports no accelerometer at all (`ioreg -c SMCMotionSensor` comes back
+empty). Feature detection cannot see this — on a secure origin macOS Chrome *defines*
+`DeviceOrientationEvent` and simply never fires it, so the button used to light up and do
+nothing. It now subscribes for 1.2s and, hearing silence, says so and points you at Lean.
+
+Lean and the two-finger swipe are the desktop substitutes: one makes the cursor the
+horizon, the other tips gravity and lets it spring back. Real tilt works on a phone or
+tablet — the live demo is the same URL.
 
 </details>
 

@@ -26,6 +26,8 @@ export function App() {
   const [hovered, setHovered] = useState<Company | null>(null)
   const [semanticReady, setSemanticReady] = useState(false)
   const [tilt, setTilt] = useState(false)
+  const [lean, setLean] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
   const [sorting, setSorting] = useState(false)
 
   // ---- boot ---------------------------------------------------------------
@@ -121,6 +123,11 @@ export function App() {
   }, [semanticReady])
 
   // ---- device tilt --------------------------------------------------------
+  // Macs have no accelerometer: the Sudden Motion Sensor existed to park
+  // spinning hard drives and left with them. But feature detection cannot see
+  // that — on a secure origin, macOS Chrome *defines* DeviceOrientationEvent
+  // and simply never fires it. So the only honest test is to subscribe and see
+  // whether anything arrives. This button used to light up and do nothing.
   const toggleTilt = useCallback(async () => {
     if (tilt) {
       setTilt(false)
@@ -130,10 +137,79 @@ export function App() {
     const DOE = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> } | undefined
     if (DOE?.requestPermission) {
       const ok = await DOE.requestPermission().catch(() => 'denied')
-      if (ok !== 'granted') return
+      if (ok !== 'granted') {
+        setNote('Motion access denied.')
+        setTimeout(() => setNote(null), 4000)
+        return
+      }
+    }
+    if (!('DeviceOrientationEvent' in window)) {
+      setNote('No motion sensor here — try Lean, or open this on a phone.')
+      setTimeout(() => setNote(null), 4500)
+      return
+    }
+
+    // Listen briefly. Silence means there is no sensor behind the API.
+    const heard = await new Promise<boolean>((resolve) => {
+      let done = false
+      const onEvent = (e: DeviceOrientationEvent) => {
+        if (done) return
+        // A sensorless platform can still emit one all-null event.
+        if (e.beta == null && e.gamma == null) return
+        done = true
+        cleanup()
+        resolve(true)
+      }
+      const timer = setTimeout(() => {
+        if (done) return
+        done = true
+        cleanup()
+        resolve(false)
+      }, 1200)
+      const cleanup = () => {
+        clearTimeout(timer)
+        window.removeEventListener('deviceorientation', onEvent)
+      }
+      window.addEventListener('deviceorientation', onEvent)
+    })
+
+    if (!heard) {
+      setNote('No motion sensor here — try Lean, or open this on a phone.')
+      setTimeout(() => setNote(null), 4500)
+      return
     }
     setTilt(true)
   }, [tilt])
+
+  // ---- lean: the pointer becomes the horizon -------------------------------
+  useEffect(() => {
+    if (!lean) {
+      pileRef.current?.setGravity(0, 1)
+      return
+    }
+    const onMove = (e: PointerEvent) => {
+      const tx = clamp((e.clientX / window.innerWidth) * 2 - 1, -1, 1)
+      const ty = clamp((e.clientY / window.innerHeight) * 2 - 1, -1, 1)
+      // Keep the pull roughly constant in magnitude so the heap slides rather
+      // than floating when you reach the edge.
+      pileRef.current?.setGravity(tx * 0.95, Math.max(0.25, 1 - Math.abs(tx) * 0.45 + ty * 0.25))
+    }
+    window.addEventListener('pointermove', onMove)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      pileRef.current?.setGravity(0, 1)
+    }
+  }, [lean])
+
+  // ---- trackpad swipe: a shove that rights itself --------------------------
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      pileRef.current?.nudgeGravity(e.deltaX * 0.004, e.deltaY * 0.002)
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [])
 
   useEffect(() => {
     if (!tilt) return
@@ -193,7 +269,20 @@ export function App() {
             Sort
           </button>
           <button className="tool" onClick={() => pileRef.current?.kick(1)} title="Shake the pile">Shake</button>
-          <button className={'tool' + (tilt ? ' is-on' : '')} onClick={toggleTilt} title="Tilt your device to shake">Tilt</button>
+          <button
+            className={'tool' + (lean ? ' is-on' : '')}
+            onClick={() => setLean((l) => !l)}
+            title="The pile leans toward your cursor"
+          >
+            Lean
+          </button>
+          <button
+            className={'tool' + (tilt ? ' is-on' : '')}
+            onClick={toggleTilt}
+            title="Tilt your phone or tablet to shake the pile"
+          >
+            Tilt
+          </button>
         </div>
       </header>
 
@@ -239,6 +328,8 @@ export function App() {
           onCompetitors={(c) => { setSelected(null); setQuery(`competitors of ${c.name}`) }}
         />
       )}
+
+      {note && <div className="note">{note}</div>}
 
       {hovered && !selected && (
         <div className="tooltip">

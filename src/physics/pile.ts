@@ -367,9 +367,24 @@ export class Pile {
     }
   }
 
+  /** Resting gravity direction — set by lean, tilt, or reset to straight down. */
+  private baseGravity = { x: 0, y: 1 }
+  /** Transient shove on top of it, decays back to zero. */
+  private gravityNudge = { x: 0, y: 0 }
+
   setGravity(x: number, y: number) {
-    this.engine.gravity.x = x
-    this.engine.gravity.y = y
+    this.baseGravity.x = x
+    this.baseGravity.y = y
+  }
+
+  /**
+   * A shove that fades — a two-finger trackpad swipe tips the world briefly and
+   * it rights itself, which is as close to tipping the laptop as a machine with
+   * no accelerometer can get.
+   */
+  nudgeGravity(dx: number, dy: number) {
+    this.gravityNudge.x = Math.max(-1.6, Math.min(1.6, this.gravityNudge.x + dx))
+    this.gravityNudge.y = Math.max(-1.2, Math.min(1.2, this.gravityNudge.y + dy))
   }
 
   focus(id: string) {
@@ -451,6 +466,11 @@ export class Pile {
 
   private tick() {
     const dt = 1000 / 60
+
+    this.engine.gravity.x = this.baseGravity.x + this.gravityNudge.x
+    this.engine.gravity.y = this.baseGravity.y + this.gravityNudge.y
+    this.gravityNudge.x *= 0.94
+    this.gravityNudge.y *= 0.94
 
     if (this.sorting) {
       for (const t of this.tiles) {
