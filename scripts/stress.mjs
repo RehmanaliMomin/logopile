@@ -10,6 +10,10 @@ const buf = readFileSync('public/embeddings.bin')
 const vectors = new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength)
 const { pipeline, env } = await import('@huggingface/transformers')
 env.cacheDir = 'scripts/.cache'
+// onnxruntime's multi-threaded pool aborts during process teardown ("mutex lock
+// failed"), turning a passing harness into a non-zero exit. One thread is
+// plenty for embedding a handful of query strings.
+env.backends.onnx.wasm.numThreads = 1
 const extract = await pipeline('feature-extraction', meta.model, { dtype: 'fp32' })
 setEmbedder(async (t) => new Float32Array((await extract(t, { pooling: 'mean', normalize: true })).data))
 const r = new Ranker({
@@ -55,6 +59,12 @@ const Q = process.argv.slice(2).length ? process.argv.slice(2) : [
   'valuation over 5 billion',
   'raised more than $1B',
   'founded in 2019',
+  // Target resolution must refuse rather than invent a match.
+  'competitors of A Company That Does Not Exist',
+  'competitors of the company',
+  'competitors of Zzzqqx Corp',
+  'competitors of walkme',
+  'competitors of Palo Alto',
 ]
 for (const q of Q) {
   const res = await r.search(q)
@@ -71,3 +81,6 @@ for (const q of Q) {
   console.log('  ' + (res.hits.length ? res.hits.slice(0, 6).map((h) => `${h.company.name} ${h.confidence}%`).join(' · ') : '— NO RESULTS —'))
 }
 function fmt(n){ return n>=1e9?(n/1e9)+'B':n>=1e6?(n/1e6)+'M':String(n) }
+
+console.log('CHECK_OK stress')
+process.exit(0)

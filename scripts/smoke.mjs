@@ -15,6 +15,10 @@ if (process.argv.includes('--semantic')) {
   vectors = new Float32Array(readFileSync('public/embeddings.bin').buffer.slice(0))
   const { pipeline, env } = await import('@huggingface/transformers')
   env.cacheDir = 'scripts/.cache'
+// onnxruntime's multi-threaded pool aborts during process teardown ("mutex lock
+// failed"), turning a passing harness into a non-zero exit. One thread is
+// plenty for embedding a handful of query strings.
+env.backends.onnx.wasm.numThreads = 1
   const extract = await pipeline('feature-extraction', meta.model, { dtype: 'fp32' })
   setEmbedder(async (text) => new Float32Array((await extract(text, { pooling: 'mean', normalize: true })).data))
   console.log(`(semantic on — ${meta.model})`)
@@ -55,3 +59,6 @@ for (const q of QUERIES) {
   console.log('  ' + res.hits.slice(0, 8).map((h) => `${h.company.name} ${h.confidence}%`).join(' · '))
   if (res.excludedForMissingData) console.log(`  (${res.excludedForMissingData} excluded for missing data)`)
 }
+
+console.log('CHECK_OK smoke')
+process.exit(0)

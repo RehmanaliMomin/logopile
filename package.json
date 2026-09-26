@@ -13,7 +13,8 @@
     "ingest:wikipedia": "node scripts/ingest-wikipedia.mjs --limit 12000",
     "infer": "node scripts/infer-competitors.mjs",
     "tickers": "node scripts/resolve-tickers.mjs",
-    "clusters": "node scripts/build-clusters.mjs"
+    "clusters": "node scripts/build-clusters.mjs",
+    "check": "tsc -b && node scripts/run-checks.mjs"
   },
   "dependencies": {
     "matter-js": "^0.20.0",

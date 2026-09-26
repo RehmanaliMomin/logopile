@@ -1,0 +1,54 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The query harnesses embed the query with MiniLM; cache the weights so a
+      # run isn't dominated by a 25MB download.
+      - name: Cache model weights
+        uses: actions/cache@v4
+        with:
+          path: scripts/.cache
+          key: hf-minilm-${{ hashFiles('scripts/build-embeddings.mjs') }}
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      # companies.json and embeddings.bin are committed; if a seed slice changed
+      # without rebuilding them, everything downstream is scoring stale data.
+      - name: Dataset is in sync with its sources
+        run: |
+          cp public/companies.json /tmp/committed-companies.json
+          node scripts/build-dataset.mjs > /dev/null
+          node -e "
+            const a = require('/tmp/committed-companies.json').length;
+            const b = require('./public/companies.json').length;
+            if (a !== b) { console.error(\`committed companies.json has \${a} rows, rebuilding from data/seed gives \${b} — run 'npm run data'\`); process.exit(1) }
+          "
+          git checkout -- public/companies.json
+
+      - name: Ranking smoke test
+        run: node scripts/smoke.mjs
+
+      - name: Adversarial queries
+        run: node scripts/stress.mjs
+
+      - name: Every suggestion returns results
+        run: node scripts/validate-suggestions.mjs
+
+      - name: Build
+        run: npm run build

@@ -1,5 +1,5 @@
 /** Every generated suggestion must return results. Run: node scripts/validate-suggestions.mjs */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
@@ -18,6 +18,10 @@ const buf = readFileSync('public/embeddings.bin')
 const vectors = new Int8Array(buf.buffer, buf.byteOffset, buf.byteLength)
 const { pipeline, env } = await import('@huggingface/transformers')
 env.cacheDir = 'scripts/.cache'
+// onnxruntime's multi-threaded pool aborts during process teardown ("mutex lock
+// failed"), turning a passing harness into a non-zero exit. One thread is
+// plenty for embedding a handful of query strings.
+env.backends.onnx.wasm.numThreads = 1
 const extract = await pipeline('feature-extraction', meta.model, { dtype: 'fp32' })
 setEmbedder(async (t) => new Float32Array((await extract(t, { pooling: 'mean', normalize: true })).data))
 
@@ -41,4 +45,11 @@ if (thin.length) {
   console.log(`\n· ${thin.length} with fewer than 3 hits:`)
   for (const q of thin.slice(0, 20)) console.log('   ' + q)
 }
+rmSync('src/search/.validate-entry.ts', { force: true })
+console.log(empty.length ? 'CHECK_FAIL validate-suggestions' : 'CHECK_OK validate-suggestions')
+
+// onnxruntime's worker threads abort during process teardown ("mutex lock
+// failed"), which turns a passing run into a non-zero exit. Release the session
+// before we go.
+await extract.dispose?.().catch(() => {})
 process.exit(empty.length ? 1 : 0)

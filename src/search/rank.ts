@@ -249,18 +249,31 @@ function rowOf(vectors: Int8Array, i: number, dim: number, scale: number): Float
   return out
 }
 
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /** "whatfix" / "Whatfix" / "walkme.com" / "Palo Alto" → the company. */
 export function resolveCompany(companies: Company[], name: string): Company | null {
   const q = name.trim().toLowerCase().replace(/[^a-z0-9. ]/g, '')
   if (!q) return null
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9. ]/g, '')
   const squash = (x: string) => x.replace(/[ .]/g, '')
+
+  // A name made only of filler resolves to nonsense: "a company" is one edit
+  // from "hcompany", the domain of a company called H, so the fuzzy fallback
+  // cheerfully returned competitors for it. Require something distinctive.
+  const GENERIC = new Set(['a', 'an', 'the', 'company', 'companies', 'business', 'firm', 'startup', 'corp', 'inc', 'ltd', 'group', 'my', 'some', 'any', 'this', 'that'])
+  if (q.split(/\s+/).every((w) => GENERIC.has(w))) return null
+
   return (
     companies.find((c) => norm(c.name) === q || c.id === squash(q) || norm(c.domain) === q) ??
     companies.find((c) => c.ticker != null && c.ticker.toLowerCase() === q) ??
     companies.find((c) => norm(c.domain).split('.')[0] === squash(q)) ??
     companies.find((c) => norm(c.name).startsWith(q) && q.length >= 3) ??
-    companies.find((c) => norm(c.name).includes(q) && q.length >= 4) ??
+    // Word-boundary substring only. A bare `includes` matched "a company"
+    // inside "QArea Company" and happily ranked competitors for it.
+    companies.find((c) => q.length >= 4 && new RegExp(`\\b${escapeRe(q)}`).test(norm(c.name))) ??
     // Last resort: one or two typos in the company name itself ("whatfx").
     (q.length >= 5
       ? companies.find((c) => editDistance(squash(norm(c.name)), squash(q), 2) <= 2) ??

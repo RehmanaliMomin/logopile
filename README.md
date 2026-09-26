@@ -6,6 +6,7 @@
 
 [![Live demo](https://img.shields.io/badge/▶_Live_demo-rehmanalimomin.github.io%2Flogopile-6366f1?style=for-the-badge)](https://rehmanalimomin.github.io/logopile/)
 
+[![Check](https://github.com/RehmanaliMomin/logopile/actions/workflows/check.yml/badge.svg)](https://github.com/RehmanaliMomin/logopile/actions/workflows/check.yml)
 [![Deploy](https://github.com/RehmanaliMomin/logopile/actions/workflows/deploy.yml/badge.svg)](https://github.com/RehmanaliMomin/logopile/actions/workflows/deploy.yml)
 ![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)
@@ -271,7 +272,8 @@ blob from 3.8 MB to 0.95 MB. Float32 does not compress; int8 does.
 | `npm run embed` | embeddings only (~25 MB model download on first run) |
 | `npm run ingest:edgar` | dry-run SEC revenue diff (`-- --write` to apply) |
 | `npm run ingest:wikipedia` | re-ingest the bulk tier from Wikipedia + Wikidata |
-| `node scripts/stress.mjs` | 28 deliberately awkward queries — typos, negation, pure filters |
+| `npm run check` | typecheck + all three harnesses, with a trustworthy exit code |
+| `node scripts/stress.mjs` | 33 deliberately awkward queries — typos, negation, pure filters, bogus company names |
 | `node scripts/validate-suggestions.mjs` | assert every generated suggestion returns results |
 | `node scripts/smoke.mjs` | run the ranker over example queries in Node |
 | `node scripts/smoke.mjs --semantic` | same, with embeddings on |
@@ -472,6 +474,7 @@ scripts/
   smoke.mjs                     Node harness: run the ranker over example queries
   stress.mjs                    adversarial queries — typos, negation, pure filters
   validate-suggestions.mjs      assert every suggestion returns results
+  run-checks.mjs                runs the harnesses; trusts their verdict, not the exit code
   resolve-tickers.mjs           match company names against SEC registrants
   infer-competitors.mjs         k-NN competitor edges for rows with none
   build-clusters.mjs            assign each company a visual zone
