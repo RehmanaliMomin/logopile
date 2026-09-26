@@ -159,7 +159,7 @@ body {
   padding: 4px 6px;
 }
 
-.examples { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 720px; }
+.examples { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 760px; }
 .example {
   appearance: none;
   background: rgba(255, 255, 255, 0.035);
@@ -173,6 +173,19 @@ body {
   transition: all 0.15s;
 }
 .example:hover { color: var(--text); background: var(--accent-soft); border-color: rgba(129, 140, 248, 0.42); }
+
+.example-more {
+  color: #c3c8ff;
+  background: var(--accent-soft);
+  border-color: rgba(129, 140, 248, 0.34);
+  font-weight: 600;
+}
+.example-more:hover { background: rgba(99, 102, 241, 0.26); }
+.example-count {
+  font: 600 10px "JetBrains Mono", ui-monospace, monospace;
+  color: var(--text-faint);
+  margin-left: 3px;
+}
 
 /* ------------------------------------------------------------------- chips */
 

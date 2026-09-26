@@ -1,15 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-const EXAMPLES = [
-  'competitors of Whatfix',
-  'digital adoption platforms',
-  'competitors of Whatfix with revenue > $1B',
-  'SaaS companies valued over $1B',
-  'IT companies with revenue > $500M founded after 2015',
-  'alternatives to WalkMe in Europe',
-  'observability unicorns with more than 1000 employees',
-  'European data governance companies founded after 2010',
-]
+/** Chips shown at once. One "More" press advances by exactly this many. */
+const PAGE = 9
 
 export function SearchBar({
   value,
@@ -18,6 +10,7 @@ export function SearchBar({
   busy,
   chips,
   count,
+  suggestions,
 }: {
   value: string
   onChange: (v: string) => void
@@ -25,8 +18,19 @@ export function SearchBar({
   busy: boolean
   chips: string[]
   count: number | null
+  /** Every suggestion the dataset supports, showcase entries first. */
+  suggestions: string[]
 }) {
   const ref = useRef<HTMLInputElement>(null)
+  const [page, setPage] = useState(0)
+
+  const shown = useMemo(() => {
+    if (!suggestions.length) return []
+    const start = (page * PAGE) % suggestions.length
+    const slice = suggestions.slice(start, start + PAGE)
+    // Wrap rather than running short on the last page.
+    return slice.length < PAGE ? [...slice, ...suggestions.slice(0, PAGE - slice.length)] : slice
+  }, [suggestions, page])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,11 +70,18 @@ export function SearchBar({
         </div>
       )}
 
-      {!value && (
+      {!value && shown.length > 0 && (
         <div className="examples">
-          {EXAMPLES.map((e) => (
+          {shown.map((e) => (
             <button key={e} className="example" onClick={() => { onChange(e); queueMicrotask(onSubmit) }}>{e}</button>
           ))}
+          <button
+            className="example example-more"
+            onClick={() => setPage((p) => p + 1)}
+            title={`${suggestions.length} suggestions available`}
+          >
+            More ↻ <span className="example-count">{suggestions.length}</span>
+          </button>
         </div>
       )}
     </div>

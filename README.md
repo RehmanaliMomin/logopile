@@ -43,7 +43,29 @@ Paste any of these into the [live demo](https://rehmanalimomin.github.io/logopil
 | `SaaS companies that are not American` | negation, which used to invert the filter |
 | `bootstrapped companies with more than 1000 employees` | a pure-filter query with no search terms at all |
 
+Or press **More ↻** under the search box to page through all **617** of them.
+
 Everything runs in your browser. No key, no server, no signup.
+
+<details>
+<summary><b>The suggestions are generated from the data, not hardcoded</b></summary>
+
+<br />
+
+A fixed list goes stale the moment the dataset changes, and can offer a query
+that returns nothing. `src/search/suggestions.ts` builds them from counts taken
+off the corpus instead — a category/country pair is only suggested when at least
+three companies satisfy it, so "cybersecurity companies in Israel" exists because
+nine of them do, not because someone guessed.
+
+Eight showcase queries stay pinned at the front (each exercises a hard code path:
+typo tolerance, negation, pure filters, competitor intent); the remaining ~600
+are shuffled per load, so a reload offers a different slice.
+
+`node scripts/validate-suggestions.mjs` runs every single one through the ranker
+and fails if any returns zero results. Currently 617/617.
+
+</details>
 
 ---
 
@@ -226,6 +248,7 @@ blob from 3.8 MB to 0.95 MB. Float32 does not compress; int8 does.
 | `npm run ingest:edgar` | dry-run SEC revenue diff (`-- --write` to apply) |
 | `npm run ingest:wikipedia` | re-ingest the bulk tier from Wikipedia + Wikidata |
 | `node scripts/stress.mjs` | 28 deliberately awkward queries — typos, negation, pure filters |
+| `node scripts/validate-suggestions.mjs` | assert every generated suggestion returns results |
 | `node scripts/smoke.mjs` | run the ranker over example queries in Node |
 | `node scripts/smoke.mjs --semantic` | same, with embeddings on |
 
@@ -382,11 +405,13 @@ scripts/
   ingest-edgar.mjs              SEC EDGAR → real revenue for tickered companies
   smoke.mjs                     Node harness: run the ranker over example queries
   stress.mjs                    adversarial queries — typos, negation, pure filters
+  validate-suggestions.mjs      assert all 617 suggestions return results
 src/
   search/parse.ts               NL → filters + target + leftover semantic text
   search/bm25.ts                tiny in-memory BM25
   search/embed.ts               query-side embedding, lazy from CDN, swappable
   search/rank.ts                the blend
+  search/suggestions.ts         query suggestions generated from corpus counts
   search/laya.ts                optional calibrated reranker
   physics/pile.ts               Matter world, spring layout, canvas rendering
   physics/logos.ts              logo fallback chain

@@ -4,6 +4,7 @@ import { loadDataset, loadVectors, type Dataset } from '../data/load'
 import { Ranker, type SearchResult } from '../search/rank'
 import { describeFilters } from '../search/parse'
 import { warmUp } from '../search/embed'
+import { buildSuggestions, PINNED_SUGGESTIONS, shuffleTail } from '../search/suggestions'
 import { layaEnabled } from '../search/laya'
 import { Pile } from '../physics/pile'
 import { SearchBar } from './SearchBar'
@@ -124,6 +125,13 @@ export function App() {
     }
   }, [tilt])
 
+  // Built once from the corpus; the showcase entries stay pinned at the front and
+  // everything else is shuffled so a reload offers a different slice.
+  const suggestions = useMemo(
+    () => (ds ? shuffleTail(buildSuggestions(ds.companies), PINNED_SUGGESTIONS) : []),
+    [ds],
+  )
+
   const hitById = useMemo(() => new Map(result?.hits.map((h) => [h.company.id, h]) ?? []), [result])
   const chips = result ? describeFilters(result.parsed) : []
   const showcase: Hit[] = result?.hits ?? []
@@ -148,6 +156,7 @@ export function App() {
           busy={busy}
           chips={chips}
           count={result ? result.hits.length : null}
+          suggestions={suggestions}
         />
 
         <div className="tools">
