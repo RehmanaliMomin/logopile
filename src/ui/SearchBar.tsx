@@ -78,9 +78,9 @@ export function SearchBar({
           <button
             className="example example-more"
             onClick={() => setPage((p) => p + 1)}
-            title={`${suggestions.length} suggestions available`}
+            title="Show a different set of suggestions"
           >
-            More ↻ <span className="example-count">{suggestions.length}</span>
+            More ↻
           </button>
         </div>
       )}

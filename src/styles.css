@@ -181,11 +181,7 @@ body {
   font-weight: 600;
 }
 .example-more:hover { background: rgba(99, 102, 241, 0.26); }
-.example-count {
-  font: 600 10px "JetBrains Mono", ui-monospace, monospace;
-  color: var(--text-faint);
-  margin-left: 3px;
-}
+
 
 /* ------------------------------------------------------------------- chips */
 
@@ -400,7 +396,10 @@ body {
   font-size: 11.5px;
   color: var(--text-faint);
   border-top: 1px solid var(--line);
-  background: linear-gradient(to top, rgba(8, 9, 13, 0.95), rgba(8, 9, 13, 0));
+  /* The pile reaches the bottom edge, so this needs to be opaque enough to read
+     against 500 bright logos, not a soft fade. */
+  background: linear-gradient(to top, rgba(8, 9, 13, 0.97) 55%, rgba(8, 9, 13, 0.82) 80%, rgba(8, 9, 13, 0));
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   pointer-events: none;
   z-index: 5;
 }

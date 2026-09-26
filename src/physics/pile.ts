@@ -70,6 +70,14 @@ export class Pile {
   private hovered: string | null = null
   private resultTop = 120
   private resultBottom = 0
+  /**
+   * How far the heap is drawn below its simulated position. Results need
+   * headroom, and the honest way to get it is to move the pile out of the way
+   * rather than draw the grid on top of it. Physics never sees this — it is a
+   * render-space offset, applied to hit-testing too so clicks stay accurate.
+   */
+  private pileOffset = 0
+  private pileOffsetTarget = 0
   private destroyed = false
 
   /** Everything searchable, including companies with no body in the heap. */
@@ -197,13 +205,20 @@ export class Pile {
 
   private tileAt(e: PointerEvent): Tile | null {
     const rect = this.canvas.getBoundingClientRect()
-    const p = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    // Flying tiles sit on top, so test them first.
-    const order = [...this.tiles].sort((a, b) => b.lift - a.lift)
-    const found = Query.point(order.map((t) => t.body), p)
-    if (!found.length) return null
-    const top = found.sort((a, b) => (this.byId.get(b.label)?.lift ?? 0) - (this.byId.get(a.label)?.lift ?? 0))[0]
-    return this.byId.get(top.label) ?? null
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    // Flying tiles are drawn where they are simulated; pile tiles are drawn
+    // `pileOffset` lower, so the pointer has to be lifted back by that much
+    // before testing against their bodies.
+    const flying = this.tiles.filter((t) => t.lift > 0.01)
+    const hitFlying = Query.point(flying.map((t) => t.body), { x, y })
+    if (hitFlying.length) {
+      const best = hitFlying.sort((a, b) => (this.byId.get(b.label)?.lift ?? 0) - (this.byId.get(a.label)?.lift ?? 0))[0]
+      return this.byId.get(best.label) ?? null
+    }
+    const rest = this.tiles.filter((t) => t.lift <= 0.01)
+    const hitPile = Query.point(rest.map((t) => t.body), { x, y: y - this.pileOffset })
+    return hitPile.length ? this.byId.get(hitPile[0].label) ?? null : null
   }
 
   // ----------------------------------------------------------------- api ----
@@ -258,7 +273,10 @@ export class Pile {
       if (t.mode === 'flying' && !flying.has(t.company.id)) this.release(t)
     }
 
-    if (!layout) return
+    if (!layout) {
+      this.pileOffsetTarget = 0
+      return
+    }
 
     hits.slice(0, layout.capacity).forEach((hit, i) => {
       const slot = layout.slots[i]
@@ -281,6 +299,7 @@ export class Pile {
 
   clear() {
     for (const t of this.tiles) if (t.mode === 'flying') this.release(t)
+    this.pileOffsetTarget = 0
   }
 
   /** Shove the pile — used by the shake button and device tilt. */
@@ -341,12 +360,16 @@ export class Pile {
     const rowH = cell * 0.96
     // Clear the search box, filter chips and the "ranking against X" note.
     const top = Math.max(196, this.h * 0.19)
-    // Measure where the heap actually reaches rather than assuming a fraction of
-    // the viewport — the pile got much taller when it grew to 500 bodies, and a
-    // fixed cutoff put the last rows of results inside it.
-    // At least two rows even when the heap is tall — flying tiles draw above the
-    // pile with a glow, so a little overlap reads fine and one lonely row does not.
-    const maxRows = Math.max(2, Math.floor((this.pileTop() - 24 - top) / rowH))
+
+    // Ask for up to three rows, then sink the heap by however much is missing.
+    // Capped so the pile always stays partly on screen — it is the point of the
+    // page, not a backdrop to be shoved off the bottom.
+    const wantRows = Math.min(3, Math.ceil(n / cols))
+    const needed = top + rowH * wantRows + 28
+    const rawTop = this.pileTop()
+    this.pileOffsetTarget = Math.max(0, Math.min(this.h * 0.34, needed - rawTop))
+
+    const maxRows = Math.max(1, Math.floor((rawTop + this.pileOffsetTarget - 28 - top) / rowH))
     const rows = Math.min(Math.ceil(n / cols), maxRows)
     const capacity = Math.min(n, rows * cols)
     const slots: Array<{ x: number; y: number }> = []
@@ -395,6 +418,8 @@ export class Pile {
       }
       t.renderSize += (t.targetSize - t.renderSize) * 0.12
     }
+
+    this.pileOffset += (this.pileOffsetTarget - this.pileOffset) * 0.09
   }
 
   // ------------------------------------------------------------- rendering --
@@ -404,16 +429,33 @@ export class Pile {
     ctx.clearRect(0, 0, this.w, this.h)
 
     const flying = this.tiles.filter((t) => t.lift > 0.01).sort((a, b) => a.rank - b.rank)
-    if (flying.length) this.drawResultBackdrop(ctx)
 
+    // The heap, pushed down out of the results' way.
+    ctx.save()
+    ctx.translate(0, this.pileOffset)
     for (const t of this.tiles) if (t.lift <= 0.01) this.drawTile(ctx, t)
+    ctx.restore()
+
+    // Hold back the pile visually while an answer is on screen: 500 bright logos
+    // are a lot of competition for fourteen that matter.
+    if (flying.length) {
+      const dim = Math.min(1, this.pileOffset / Math.max(1, this.pileOffsetTarget || 1))
+      const g = ctx.createLinearGradient(0, this.resultTop - 40, 0, this.h)
+      g.addColorStop(0, `rgba(8,9,13,${0.62 * dim})`)
+      g.addColorStop(0.45, `rgba(8,9,13,${0.5 * dim})`)
+      g.addColorStop(1, `rgba(8,9,13,${0.34 * dim})`)
+      ctx.fillStyle = g
+      ctx.fillRect(0, this.resultTop - 40, this.w, this.h - this.resultTop + 40)
+      this.drawResultBackdrop(ctx)
+    }
+
     for (const t of flying) this.drawTile(ctx, t)
   }
 
   private drawResultBackdrop(ctx: CanvasRenderingContext2D) {
     const g = ctx.createLinearGradient(0, this.resultTop - 60, 0, this.resultBottom + 40)
     g.addColorStop(0, 'rgba(99,102,241,0.00)')
-    g.addColorStop(0.5, 'rgba(99,102,241,0.055)')
+    g.addColorStop(0.5, 'rgba(99,102,241,0.07)')
     g.addColorStop(1, 'rgba(99,102,241,0.00)')
     ctx.fillStyle = g
     ctx.fillRect(0, this.resultTop - 60, this.w, this.resultBottom - this.resultTop + 100)
@@ -460,32 +502,43 @@ export class Pile {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       const label = t.company.name.length > 18 ? t.company.name.slice(0, 17) + '…' : t.company.name
-      const ty = s / 2 + 15
-      ctx.fillStyle = `rgba(233,236,245,${a})`
-      ctx.fillText(label, 0, ty)
-
+      const ty = s / 2 + 16
       const conf = `${t.confidence}%`
+
+      // One solid plate behind the name and the score. Text drawn straight onto
+      // the pile is unreadable the moment a bright logo sits behind it.
+      const nameW = ctx.measureText(label).width
       ctx.font = '700 10px "JetBrains Mono", ui-monospace, monospace'
-      const cw = ctx.measureText(conf).width + 12
-      const cy = ty + 15
-      roundRect(ctx, -cw / 2, cy - 8, cw, 16, 8)
-      ctx.fillStyle = `rgba(99,102,241,${0.22 * a})`
+      const confW = ctx.measureText(conf).width
+      const plateW = Math.max(nameW, 58) + confW + 26
+      const plateH = 22
+      roundRect(ctx, -plateW / 2, ty - plateH / 2, plateW, plateH, 11)
+      ctx.fillStyle = `rgba(13,15,23,${0.9 * a})`
       ctx.fill()
-      ctx.strokeStyle = `rgba(129,140,248,${0.5 * a})`
+      ctx.strokeStyle = `rgba(129,140,248,${0.28 * a})`
       ctx.lineWidth = 1
       ctx.stroke()
-      ctx.fillStyle = `rgba(196,201,255,${a})`
-      ctx.fillText(conf, 0, cy + 1)
+
+      ctx.font = '600 11px Inter, system-ui, sans-serif'
+      ctx.textAlign = 'left'
+      ctx.fillStyle = `rgba(233,236,245,${a})`
+      ctx.fillText(label, -plateW / 2 + 10, ty)
+
+      ctx.font = '700 10px "JetBrains Mono", ui-monospace, monospace'
+      ctx.textAlign = 'right'
+      ctx.fillStyle = `rgba(160,170,255,${a})`
+      ctx.fillText(conf, plateW / 2 - 10, ty + 0.5)
+      ctx.textAlign = 'center'
 
       ctx.beginPath()
-      ctx.arc(-s / 2 + 2, -s / 2 + 2, 9, 0, Math.PI * 2)
+      ctx.arc(-s / 2 + 1, -s / 2 + 1, 9, 0, Math.PI * 2)
       ctx.fillStyle = `rgba(17,18,28,${0.92 * a})`
       ctx.fill()
       ctx.strokeStyle = `rgba(129,140,248,${0.65 * a})`
       ctx.stroke()
       ctx.fillStyle = `rgba(226,229,245,${a})`
       ctx.font = '700 9px "JetBrains Mono", ui-monospace, monospace'
-      ctx.fillText(String(t.rank), -s / 2 + 2, -s / 2 + 3)
+      ctx.fillText(String(t.rank), -s / 2 + 1, -s / 2 + 2)
     }
 
     ctx.restore()

@@ -43,7 +43,7 @@ Paste any of these into the [live demo](https://rehmanalimomin.github.io/logopil
 | `SaaS companies that are not American` | negation, which used to invert the filter |
 | `bootstrapped companies with more than 1000 employees` | a pure-filter query with no search terms at all |
 
-Or press **More ↻** under the search box to page through all **617** of them.
+Or press **More ↻** under the search box to page through the rest — there are over 600.
 
 Everything runs in your browser. No key, no server, no signup.
 
@@ -194,8 +194,16 @@ are moved by a critically-damped spring integrated outside Matter. Physics for t
 deterministic easing for the answer; letting gravity and neighbours near the result grid
 turns it into a jostling mess.
 
-Tiles are sized by `log10(valuation)`, so the pile has visual hierarchy even at rest, and
-only as many results fly as fit above the measured top of the heap — the rest stay in the rail.
+**The heap sinks to make room.** Results need headroom, and the honest way to get it is to
+move the pile rather than draw the grid on top of it: when an answer comes up, the heap is
+rendered up to a third of the viewport lower and dimmed behind a scrim, then eases back when
+the query clears. Physics never sees the offset — it is applied at draw time, and to
+hit-testing too, so clicks stay accurate while the pile is displaced.
+
+Each flying tile carries its name and score on one solid plate. Text drawn straight over the
+pile is unreadable the moment a bright logo lands behind it.
+
+Tiles are sized by `log10(valuation)`, so the pile has visual hierarchy even at rest.
 
 Every tile is a **pre-baked sprite** (rounded plate + drop shadow + logo, drawn once to an
 offscreen canvas and blitted thereafter). Re-drawing 500 rounded rects with `shadowBlur`
